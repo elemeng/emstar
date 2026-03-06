@@ -78,16 +78,10 @@ impl SimpleBlock {
         }
     }
 
-    /// Get a reference to the underlying data HashMap
+    /// Iterate over all key-value pairs in the block
     #[inline]
-    pub fn data(&self) -> &HashMap<SmartString, DataValue> {
-        &self.data
-    }
-
-    /// Get a mutable reference to the underlying data HashMap
-    #[inline]
-    pub fn data_mut(&mut self) -> &mut HashMap<SmartString, DataValue> {
-        &mut self.data
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &DataValue)> + '_ {
+        self.data.iter().map(|(k, v)| (k.as_str(), v))
     }
 
     /// Get a value by key (Read)
@@ -170,6 +164,14 @@ pub struct LoopBlock {
 }
 
 impl LoopBlock {
+    /// Create a new empty loop block
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            df: DataFrame::empty(),
+        }
+    }
+
     /// Create a builder for constructing a LoopBlock with a fluent API
     ///
     /// # Example
@@ -178,7 +180,7 @@ impl LoopBlock {
     ///
     /// let block = LoopBlock::builder()
     ///     .columns(&["col1", "col2"])
-    ///     .rows(&[
+    ///     .rows(vec![
     ///         vec![DataValue::Float(1.0), DataValue::Float(2.0)],
     ///         vec![DataValue::Float(3.0), DataValue::Float(4.0)],
     ///     ])
@@ -191,16 +193,6 @@ impl LoopBlock {
     #[inline]
     pub fn builder() -> LoopBlockBuilder {
         LoopBlockBuilder::new()
-    }
-}
-
-impl LoopBlock {
-    /// Create a new empty loop block
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            df: DataFrame::empty(),
-        }
     }
 
     /// Create a LoopBlock from a Polars DataFrame
@@ -452,21 +444,21 @@ impl LoopBlock {
     }
 
     /// Get a string value by row index and column name
-    /// Returns the string representation of any value type
+    /// Returns the string representation of any value type as SmartString
     #[inline]
-    pub fn get_string(&self, row_idx: usize, col_name: &str) -> Option<String> {
+    pub fn get_string(&self, row_idx: usize, col_name: &str) -> Option<SmartString> {
         match self.get_by_name(row_idx, col_name)? {
-            DataValue::String(s) => Some(s.to_string()),
-            DataValue::Integer(i) => Some(i.to_string()),
-            DataValue::Float(f) => Some(f.to_string()),
+            DataValue::String(s) => Some(s),
+            DataValue::Integer(i) => Some(i.to_string().into()),
+            DataValue::Float(f) => Some(f.to_string().into()),
             DataValue::Null => None,
         }
     }
 
     /// Get a string value by row index and column name, with a default if not found
     #[inline]
-    pub fn get_string_or(&self, row_idx: usize, col_name: &str, default: &str) -> String {
-        self.get_string(row_idx, col_name).unwrap_or_else(|| default.to_string())
+    pub fn get_string_or(&self, row_idx: usize, col_name: &str, default: &str) -> SmartString {
+        self.get_string(row_idx, col_name).unwrap_or_else(|| default.into())
     }
 
     /// Set a value by row and column index
@@ -479,20 +471,23 @@ impl LoopBlock {
     }
 
     /// Set a value by row index and column name
+    /// 
+    /// # Performance Note
+    /// This operation is O(n) where n is the number of rows in the column,
+    /// as Polars DataFrames use immutable columnar storage. The entire column
+    /// must be recreated to change a single value. For batch updates to an
+    /// entire row, use [`update_row`] which minimizes overhead.
     pub fn set_by_name(&mut self, row_idx: usize, col_name: &str, value: DataValue) -> Result<(), crate::Error> {
-        // Get the column and modify it
-        let col_idx = self.df.get_column_names().iter().position(|&c| c.as_str() == col_name)
-            .ok_or_else(|| crate::Error::InvalidFormat(format!("Column '{}' not found", col_name)))?;
+        // Check if column exists first
+        if !self.has_column(col_name) {
+            return Err(crate::Error::InvalidFormat(format!("Column '{}' not found", col_name)));
+        }
         
-        // Note: Polars DataFrame doesn't support direct cell replacement easily
-        // This is a simplified implementation that replaces the entire column
-        // For better performance, consider using Series operations instead
-        let col_name_str: String = self.df.get_column_names()[col_idx].as_str().to_string();
-        let column = self.df.column(&col_name_str)
+        let column = self.df.column(col_name)
             .map_err(|e| crate::Error::InvalidFormat(format!("Failed to get column: {}", e)))?;
         
         let new_series = data_values_to_series_with_replacement(column, row_idx, value)?;
-        self.df.replace(&col_name_str, new_series)
+        self.df.replace(col_name, new_series)
             .map_err(|e| crate::Error::InvalidFormat(format!("Failed to set value: {}", e)))?;
         Ok(())
     }
@@ -564,8 +559,8 @@ impl LoopBlock {
         // Update each value in the row
         // Collect column names first to avoid borrow checker issues
         let col_names: Vec<String> = self.columns().iter().map(|&s| s.to_string()).collect();
-        for (col_name, value) in col_names.iter().zip(values.iter()) {
-            self.set_by_name(row_idx, col_name, value.clone())?;
+        for (col_name, value) in col_names.iter().zip(values.into_iter()) {
+            self.set_by_name(row_idx, col_name, value)?;
         }
         
         Ok(())
@@ -606,11 +601,8 @@ impl LoopBlock {
 
     /// Clear all rows but keep columns (Delete all rows)
     pub fn clear_rows(&mut self) {
-        let col_names = self.columns();
-        let empty_columns: Vec<Column> = col_names.iter()
-            .map(|&name| Series::new(name.into(), Vec::<String>::new()).into())
-            .collect();
-        self.df = DataFrame::new(empty_columns).unwrap_or_else(|_| DataFrame::empty());
+        // Use slice to keep schema but have 0 rows
+        self.df = self.df.slice(0, 0);
     }
 
     /// Clear all data including columns (Delete all)
@@ -663,36 +655,15 @@ impl LoopBlock {
     /// Iterate over all rows with their indices
     pub fn enumerate_rows(&self) -> impl Iterator<Item = (usize, Vec<DataValue>)> + '_ {
         let nrows = self.row_count();
-        let col_names = self.columns();
+        let columns: Vec<_> = self.df.get_columns().iter().collect();
         (0..nrows).map(move |row_idx| {
-            let row: Vec<DataValue> = col_names.iter()
-                .map(|col_name| self.get_by_name(row_idx, col_name).unwrap_or(DataValue::Null))
+            let row: Vec<DataValue> = columns.iter()
+                .map(|col| column_value_at(col, row_idx))
                 .collect();
             (row_idx, row)
         })
     }
 
-    /// Convert LoopBlock to HashMap of column vectors for backward compatibility
-    pub fn to_legacy(&self) -> Result<(Vec<SmartString>, Vec<Vec<DataValue>>), crate::Error> {
-        let mut columns = Vec::new();
-        let mut data = Vec::new();
-        
-        let nrows = self.row_count();
-        
-        for col_name in self.df.get_column_names() {
-            columns.push(col_name.as_str().into());
-        }
-        
-        for row_idx in 0..nrows {
-            let mut row = Vec::new();
-            for col_name in self.df.get_column_names() {
-                row.push(self.get_by_name(row_idx, col_name).unwrap_or(DataValue::Null));
-            }
-            data.push(row);
-        }
-        
-        Ok((columns, data))
-    }
 }
 
 impl Default for LoopBlock {
@@ -709,7 +680,7 @@ impl Default for LoopBlock {
 ///
 /// let block = LoopBlock::builder()
 ///     .columns(&["rlnCoordinateX", "rlnCoordinateY"])
-///     .rows(&[
+///     .rows(vec![
 ///         vec![DataValue::Float(100.0), DataValue::Float(200.0)],
 ///         vec![DataValue::Float(150.0), DataValue::Float(250.0)],
 ///     ])
@@ -777,7 +748,7 @@ impl LoopBlockBuilder {
     ///
     /// let block = LoopBlock::builder()
     ///     .columns(&["col1", "col2"])
-    ///     .rows(&[
+    ///     .rows(vec![
     ///         vec![DataValue::Float(1.0), DataValue::Float(2.0)],
     ///         vec![DataValue::Float(3.0), DataValue::Float(4.0)],
     ///     ])
@@ -786,8 +757,8 @@ impl LoopBlockBuilder {
     ///
     /// assert_eq!(block.row_count(), 2);
     /// ```
-    pub fn rows(mut self, rows: &[Vec<DataValue>]) -> Self {
-        self.rows = rows.to_vec();
+    pub fn rows(mut self, rows: Vec<Vec<DataValue>>) -> Self {
+        self.rows = rows;
         self
     }
 
@@ -1155,63 +1126,82 @@ fn column_value_at(column: &Column, row_idx: usize) -> DataValue {
 }
 
 /// Helper function to create a new series with a single value replaced
+/// 
+/// Note: This operation is O(n) where n is the column length, as it requires
+/// recreating the entire column. For batch updates, consider using Polars expressions
+/// or rebuilding the DataFrame from scratch.
 fn data_values_to_series_with_replacement(column: &Column, row_idx: usize, new_value: DataValue) -> Result<Series, crate::Error> {
     // Convert to Series for processing
     let series = column.as_series().ok_or_else(|| crate::Error::InvalidFormat("Failed to get series from column".to_string()))?;
-    let series = series.clone();
-    // Convert series to Vec<AnyValue> for modification
     let dtype = series.dtype();
-    let name = series.name().to_string();
+    let name = series.name();
+    let len = series.len();
     
+    // Pre-allocate with exact capacity
     match dtype {
         DataType::Float64 => {
             let ca = series.f64().map_err(|e| crate::Error::InvalidFormat(format!("Failed to get float values: {}", e)))?;
-            let mut values: Vec<Option<f64>> = ca.into_iter().collect();
-            if row_idx < values.len() {
-                values[row_idx] = match new_value {
-                    DataValue::Float(f) => Some(f),
-                    DataValue::Integer(i) => Some(i as f64),
-                    DataValue::Null => None,
-                    _ => None,
-                };
-            }
-            Ok(Series::new(name.into(), values))
+            let mut values: Vec<Option<f64>> = Vec::with_capacity(len);
+            values.extend(ca.into_iter().enumerate().map(|(i, v)| {
+                if i == row_idx {
+                    match &new_value {
+                        DataValue::Float(f) => Some(*f),
+                        DataValue::Integer(i) => Some(*i as f64),
+                        DataValue::Null => None,
+                        _ => None,
+                    }
+                } else {
+                    v
+                }
+            }));
+            Ok(Series::new(name.clone(), values))
         }
         DataType::Int64 => {
             let ca = series.i64().map_err(|e| crate::Error::InvalidFormat(format!("Failed to get int values: {}", e)))?;
-            let mut values: Vec<Option<i64>> = ca.into_iter().collect();
-            if row_idx < values.len() {
-                values[row_idx] = match new_value {
-                    DataValue::Integer(i) => Some(i),
-                    DataValue::Float(f) if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 => Some(f as i64),
-                    DataValue::Null => None,
-                    _ => None,
-                };
-            }
-            Ok(Series::new(name.into(), values))
+            let mut values: Vec<Option<i64>> = Vec::with_capacity(len);
+            values.extend(ca.into_iter().enumerate().map(|(i, v)| {
+                if i == row_idx {
+                    match &new_value {
+                        DataValue::Integer(i) => Some(*i),
+                        DataValue::Float(f) if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 => Some(*f as i64),
+                        DataValue::Null => None,
+                        _ => None,
+                    }
+                } else {
+                    v
+                }
+            }));
+            Ok(Series::new(name.clone(), values))
         }
         DataType::String => {
             let ca = series.str().map_err(|e| crate::Error::InvalidFormat(format!("Failed to get string values: {}", e)))?;
-            let mut values: Vec<Option<String>> = ca.into_iter().map(|s| s.map(|s| s.to_string())).collect();
-            if row_idx < values.len() {
-                values[row_idx] = match new_value {
-                    DataValue::String(s) => Some(s.as_str().to_string()),
-                    DataValue::Integer(i) => Some(i.to_string()),
-                    DataValue::Float(f) => Some(f.to_string()),
-                    DataValue::Null => None,
-                };
-            }
-            Ok(Series::new(name.into(), values))
+            let mut values: Vec<Option<String>> = Vec::with_capacity(len);
+            values.extend(ca.into_iter().enumerate().map(|(i, v)| {
+                if i == row_idx {
+                    match &new_value {
+                        DataValue::String(s) => Some(s.to_string()),
+                        DataValue::Integer(i) => Some(i.to_string()),
+                        DataValue::Float(f) => Some(f.to_string()),
+                        DataValue::Null => None,
+                    }
+                } else {
+                    v.map(|s| s.to_string())
+                }
+            }));
+            Ok(Series::new(name.clone(), values))
         }
         _ => {
             // Fallback: convert to string series
-            let mut values: Vec<Option<String>> = (0..series.len())
-                .map(|i| series.get(i).ok().map(|av| av.to_string()))
-                .collect();
-            if row_idx < values.len() {
-                values[row_idx] = Some(new_value.as_string().unwrap_or("<NA>").to_string());
+            let mut values: Vec<Option<String>> = Vec::with_capacity(len);
+            for i in 0..len {
+                let val = if i == row_idx {
+                    Some(new_value.as_string().unwrap_or("<NA>").to_string())
+                } else {
+                    series.get(i).ok().map(|av| av.to_string())
+                };
+                values.push(val);
             }
-            Ok(Series::new(name.into(), values))
+            Ok(Series::new(name.clone(), values))
         }
     }
 }

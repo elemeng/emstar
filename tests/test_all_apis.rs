@@ -737,7 +737,7 @@ fn test_loopblock_builder_column_method() {
 fn test_loopblock_builder_rows_method() {
     let block = LoopBlock::builder()
         .columns(&["a", "b"])
-        .rows(&[
+        .rows(vec![
             vec![DataValue::Integer(1), DataValue::Integer(2)],
             vec![DataValue::Integer(3), DataValue::Integer(4)],
             vec![DataValue::Integer(5), DataValue::Integer(6)],
