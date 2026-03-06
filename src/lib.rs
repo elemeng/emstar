@@ -492,3 +492,38 @@ pub fn stats<P: AsRef<Path>>(path: P) -> Result<StarStats> {
 pub fn block_stats(blocks: &HashMap<String, DataBlock>) -> StarStats {
     StarStats::from_blocks(blocks)
 }
+
+/// List all data blocks with their names and types.
+///
+/// Returns a vector of tuples containing (block_name, block_type) where
+/// block_type is either "SimpleBlock" or "LoopBlock".
+///
+/// # Arguments
+///
+/// * `blocks` - HashMap of data blocks
+///
+/// # Returns
+///
+/// A `Vec<(String, &str)>` containing block names and their types
+///
+/// # Example
+///
+/// ```rust
+/// use emstar::{list_blocks, SimpleBlock, LoopBlock, DataBlock};
+/// use std::collections::HashMap;
+///
+/// let mut blocks = HashMap::new();
+/// blocks.insert("general".to_string(), DataBlock::Simple(SimpleBlock::new()));
+/// blocks.insert("particles".to_string(), DataBlock::Loop(LoopBlock::new()));
+///
+/// let names = list_blocks(&blocks);
+/// assert_eq!(names.len(), 2);
+/// // names will contain: [("general", "SimpleBlock"), ("particles", "LoopBlock")]
+/// // (order may vary since HashMap is unordered)
+/// ```
+pub fn list_blocks(blocks: &HashMap<String, DataBlock>) -> Vec<(String, &'static str)> {
+    blocks
+        .iter()
+        .map(|(name, block)| (name.clone(), block.block_type()))
+        .collect()
+}

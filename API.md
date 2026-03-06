@@ -118,6 +118,37 @@ let star_string = to_string(&data_blocks)?;
 
 ---
 
+### `list_blocks`
+
+List all data blocks with their names and types.
+
+```rust
+pub fn list_blocks(blocks: &HashMap<String, DataBlock>) -> Vec<(String, &'static str)>
+```
+
+**Arguments:**
+
+- `blocks` - HashMap of data blocks
+
+**Returns:**
+
+- `Vec<(String, &str)>` - Vector of (block_name, block_type) tuples where block_type is "SimpleBlock" or "LoopBlock"
+
+**Example:**
+
+```rust
+use emstar::{list_blocks, read};
+
+let data_blocks = read("particles.star")?;
+let blocks = list_blocks(&data_blocks);
+
+for (name, block_type) in blocks {
+    println!("Block '{}' is a {}", name, block_type);
+}
+```
+
+---
+
 ### File Operations with Standard Library
 
 For file management operations like checking existence or deleting files, use the Rust standard library:

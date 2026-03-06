@@ -354,6 +354,7 @@ println!("Rows: {}, Cols: {}, Cells: {}", stats.n_rows, stats.n_cols, stats.n_ce
 | `read(path)` | Read a STAR file from disk |
 | `write(&data, path)` | Write data to a STAR file (creates or overwrites) |
 | `to_string(&data)` | Convert data to STAR format string |
+| `list_blocks(&blocks)` | List all blocks with their names and types |
 
 For file management (delete, exists), use `std::fs` and `std::path::Path`.
 
