@@ -1,8 +1,8 @@
 //! Comprehensive API tests on real STAR files from tests/data
 
 use emstar::{
-    block_stats, read, write, stats,
-    DataBlock, DataBlockStats, DataValue, LoopBlock, SimpleBlock,
+    block_stats, list_blocks, read, write, stats,
+    DataBlock, DataBlockStats, DataValue, LoopBlock, SimpleBlock, StarStats,
 };
 use std::path::Path;
 
@@ -552,14 +552,355 @@ fn test_to_string_conversion() {
     for file in &files {
         let path = format!("{}/{}", TEST_DATA_DIR, file);
         let data = read(&path).unwrap();
-    
-    let star_string = emstar::to_string(&data);
-    assert!(star_string.is_ok());
-    
-    let s = star_string.unwrap();
-    assert!(!s.is_empty());
-    assert!(s.contains("data_"));
+        
+        let star_string = emstar::to_string(&data);
+        assert!(star_string.is_ok());
+        
+        let s = star_string.unwrap();
+        assert!(!s.is_empty());
+        assert!(s.contains("data_"));
     }
+}
+
+/// Test list_blocks function
+#[test]
+fn test_list_blocks() {
+    use emstar::list_blocks;
+    
+    let path = format!("{}/default_pipeline.star", TEST_DATA_DIR);
+    let data = read(&path).unwrap();
+    
+    let blocks = list_blocks(&data);
+    
+    // Should return all block names with their types
+    assert_eq!(blocks.len(), data.len());
+    
+    // Verify each block has correct type
+    for (name, block_type) in &blocks {
+        let actual_block = data.get(name).unwrap();
+        assert_eq!(*block_type, actual_block.block_type());
+        assert!(*block_type == "SimpleBlock" || *block_type == "LoopBlock");
+    }
+}
+
+/// Test DataBlock expect methods
+#[test]
+fn test_datablock_expect_methods() {
+    let mut simple_block = SimpleBlock::new();
+    simple_block.set("key", DataValue::Integer(42));
+    
+    let mut loop_block = LoopBlock::new();
+    loop_block.add_column("col1");
+    loop_block.add_row(vec![DataValue::Integer(1)]).unwrap();
+    
+    let simple_db = DataBlock::Simple(simple_block);
+    let loop_db = DataBlock::Loop(loop_block);
+    
+    // Test expect_simple - should work
+    let _ = simple_db.expect_simple("Should be simple");
+    
+    // Test expect_loop - should work
+    let _ = loop_db.expect_loop("Should be loop");
+    
+    // Test expect_simple on loop should panic
+    let result = std::panic::catch_unwind(|| {
+        let loop_db = DataBlock::Loop(LoopBlock::new());
+        let _ = loop_db.expect_simple("This should panic");
+    });
+    assert!(result.is_err());
+    
+    // Test expect_loop on simple should panic
+    let result = std::panic::catch_unwind(|| {
+        let simple_db = DataBlock::Simple(SimpleBlock::new());
+        let _ = simple_db.expect_loop("This should panic");
+    });
+    assert!(result.is_err());
+}
+
+/// Test DataBlock expect_mut methods
+#[test]
+fn test_datablock_expect_mut_methods() {
+    let mut simple_block = SimpleBlock::new();
+    simple_block.set("key", DataValue::Integer(42));
+    
+    let mut loop_block = LoopBlock::new();
+    loop_block.add_column("col1");
+    loop_block.add_row(vec![DataValue::Integer(1)]).unwrap();
+    
+    let mut simple_db = DataBlock::Simple(simple_block);
+    let mut loop_db = DataBlock::Loop(loop_block);
+    
+    // Test expect_simple_mut - should work and allow modification
+    {
+        let simple = simple_db.expect_simple_mut("Should be simple");
+        simple.set("new_key", DataValue::String("value".into()));
+    }
+    
+    // Test expect_loop_mut - should work and allow modification
+    {
+        let loop_b = loop_db.expect_loop_mut("Should be loop");
+        loop_b.add_row(vec![DataValue::Integer(2)]).unwrap();
+    }
+    
+    // Test expect_simple_mut on loop should panic
+    let result = std::panic::catch_unwind(|| {
+        let mut loop_db = DataBlock::Loop(LoopBlock::new());
+        let _ = loop_db.expect_simple_mut("This should panic");
+    });
+    assert!(result.is_err());
+    
+    // Test expect_loop_mut on simple should panic
+    let result = std::panic::catch_unwind(|| {
+        let mut simple_db = DataBlock::Simple(SimpleBlock::new());
+        let _ = simple_db.expect_loop_mut("This should panic");
+    });
+    assert!(result.is_err());
+}
+
+/// Test LoopBlock update_row
+#[test]
+fn test_loopblock_update_row() {
+    let mut block = LoopBlock::new();
+    block.add_column("col1");
+    block.add_column("col2");
+    block.add_row(vec![DataValue::Integer(1), DataValue::Integer(2)]).unwrap();
+    block.add_row(vec![DataValue::Integer(3), DataValue::Integer(4)]).unwrap();
+    
+    // Update row 0
+    block.update_row(0, vec![DataValue::Integer(10), DataValue::Integer(20)]).unwrap();
+    
+    assert_eq!(block.get_by_name(0, "col1"), Some(DataValue::Integer(10)));
+    assert_eq!(block.get_by_name(0, "col2"), Some(DataValue::Integer(20)));
+    
+    // Verify row 1 unchanged
+    assert_eq!(block.get_by_name(1, "col1"), Some(DataValue::Integer(3)));
+    assert_eq!(block.get_by_name(1, "col2"), Some(DataValue::Integer(4)));
+    
+    // Test out of bounds
+    assert!(block.update_row(99, vec![DataValue::Integer(1)]).is_err());
+    
+    // Test wrong column count
+    assert!(block.update_row(0, vec![DataValue::Integer(1)]).is_err());
+}
+
+/// Test LoopBlock clear_rows and clear
+#[test]
+fn test_loopblock_clear_methods() {
+    let mut block = LoopBlock::new();
+    block.add_column("col1");
+    block.add_column("col2");
+    block.add_row(vec![DataValue::Integer(1), DataValue::Integer(2)]).unwrap();
+    block.add_row(vec![DataValue::Integer(3), DataValue::Integer(4)]).unwrap();
+    
+    assert_eq!(block.row_count(), 2);
+    assert_eq!(block.column_count(), 2);
+    
+    // Test clear_rows - keeps columns
+    block.clear_rows();
+    assert_eq!(block.row_count(), 0);
+    assert_eq!(block.column_count(), 2);
+    assert!(block.is_empty());
+    
+    // Add row again
+    block.add_row(vec![DataValue::Integer(5), DataValue::Integer(6)]).unwrap();
+    assert_eq!(block.row_count(), 1);
+    
+    // Test clear - removes everything
+    block.clear();
+    assert_eq!(block.row_count(), 0);
+    assert_eq!(block.column_count(), 0);
+    assert!(block.is_empty());
+}
+
+/// Test SimpleBlock clear
+#[test]
+fn test_simpleblock_clear() {
+    let mut block = SimpleBlock::new();
+    block.set("key1", DataValue::Integer(1));
+    block.set("key2", DataValue::Integer(2));
+    block.set("key3", DataValue::Integer(3));
+    
+    assert_eq!(block.len(), 3);
+    
+    block.clear();
+    
+    assert_eq!(block.len(), 0);
+    assert!(block.is_empty());
+    assert!(block.get("key1").is_none());
+}
+
+/// Test LoopBlock enumerate_rows
+#[test]
+fn test_loopblock_enumerate_rows() {
+    let mut block = LoopBlock::new();
+    block.add_column("col1");
+    block.add_column("col2");
+    block.add_row(vec![DataValue::Integer(1), DataValue::Integer(2)]).unwrap();
+    block.add_row(vec![DataValue::Integer(3), DataValue::Integer(4)]).unwrap();
+    block.add_row(vec![DataValue::Integer(5), DataValue::Integer(6)]).unwrap();
+    
+    let enumerated: Vec<_> = block.enumerate_rows().collect();
+    
+    assert_eq!(enumerated.len(), 3);
+    
+    // Check indices and values
+    assert_eq!(enumerated[0].0, 0);
+    assert_eq!(enumerated[0].1[0], DataValue::Integer(1));
+    assert_eq!(enumerated[0].1[1], DataValue::Integer(2));
+    
+    assert_eq!(enumerated[1].0, 1);
+    assert_eq!(enumerated[1].1[0], DataValue::Integer(3));
+    assert_eq!(enumerated[1].1[1], DataValue::Integer(4));
+    
+    assert_eq!(enumerated[2].0, 2);
+    assert_eq!(enumerated[2].1[0], DataValue::Integer(5));
+    assert_eq!(enumerated[2].1[1], DataValue::Integer(6));
+}
+
+/// Test LoopBlock column_iter methods
+#[test]
+fn test_loopblock_column_iter() {
+    let mut block = LoopBlock::new();
+    block.add_column("float_col");
+    block.add_column("int_col");
+    block.add_column("string_col");
+    block.add_row(vec![
+        DataValue::Float(1.5),
+        DataValue::Integer(10),
+        DataValue::String("hello".into()),
+    ]).unwrap();
+    block.add_row(vec![
+        DataValue::Float(2.5),
+        DataValue::Integer(20),
+        DataValue::String("world".into()),
+    ]).unwrap();
+    block.add_row(vec![
+        DataValue::Null,
+        DataValue::Null,
+        DataValue::Null,
+    ]).unwrap();
+    
+    // Test column_iter_f64
+    let float_values: Vec<_> = block.column_iter_f64("float_col").unwrap().collect();
+    assert_eq!(float_values.len(), 3);
+    assert_eq!(float_values[0], Some(1.5));
+    assert_eq!(float_values[1], Some(2.5));
+    assert_eq!(float_values[2], None); // Null value
+    
+    // Test column_iter_i64
+    let int_values: Vec<_> = block.column_iter_i64("int_col").unwrap().collect();
+    assert_eq!(int_values.len(), 3);
+    assert_eq!(int_values[0], Some(10));
+    assert_eq!(int_values[1], Some(20));
+    assert_eq!(int_values[2], None); // Null value
+    
+    // Test column_iter_str
+    let str_values: Vec<_> = block.column_iter_str("string_col").unwrap().collect();
+    assert_eq!(str_values.len(), 3);
+    assert_eq!(str_values[0], Some("hello"));
+    assert_eq!(str_values[1], Some("world"));
+    assert_eq!(str_values[2], None); // Null value
+    
+    // Test non-existent column returns None
+    assert!(block.column_iter_f64("nonexistent").is_none());
+}
+
+/// Test LoopBlock get_f64/get_i64/get_string helpers
+#[test]
+fn test_loopblock_typed_getters() {
+    let mut block = LoopBlock::new();
+    block.add_column("float_col");
+    block.add_column("int_col");
+    block.add_column("string_col");
+    block.add_row(vec![
+        DataValue::Float(3.14),
+        DataValue::Integer(42),
+        DataValue::String("test".into()),
+    ]).unwrap();
+    
+    // Test get_f64
+    assert_eq!(block.get_f64(0, "float_col"), Some(3.14));
+    assert_eq!(block.get_f64_or(0, "float_col", 0.0), 3.14);
+    
+    // Test get_i64
+    assert_eq!(block.get_i64(0, "int_col"), Some(42));
+    assert_eq!(block.get_i64_or(0, "int_col", 0), 42);
+    
+    // Test get_string
+    assert_eq!(block.get_string(0, "string_col").map(|s| s.to_string()), Some("test".to_string()));
+    assert_eq!(block.get_string_or(0, "string_col", "default").to_string(), "test".to_string());
+    
+    // Test default values for non-existent columns
+    assert_eq!(block.get_f64_or(0, "nonexistent", 99.9), 99.9);
+    assert_eq!(block.get_i64_or(0, "nonexistent", 99), 99);
+    assert_eq!(block.get_string_or(0, "nonexistent", "default").to_string(), "default");
+}
+
+/// Test StarStats helper methods
+#[test]
+fn test_starstats_helper_methods() {
+    use emstar::StarStats;
+    
+    let mut blocks = std::collections::HashMap::new();
+    
+    // Add simple blocks
+    let mut simple1 = SimpleBlock::new();
+    simple1.set("k1", DataValue::Integer(1));
+    simple1.set("k2", DataValue::Integer(2));
+    blocks.insert("simple1".to_string(), DataBlock::Simple(simple1));
+    
+    let mut simple2 = SimpleBlock::new();
+    simple2.set("k3", DataValue::Integer(3));
+    blocks.insert("simple2".to_string(), DataBlock::Simple(simple2));
+    
+    // Add loop blocks
+    let mut loop1 = LoopBlock::new();
+    loop1.add_column("col1");
+    loop1.add_row(vec![DataValue::Integer(1)]).unwrap();
+    loop1.add_row(vec![DataValue::Integer(2)]).unwrap();
+    loop1.add_row(vec![DataValue::Integer(3)]).unwrap();
+    blocks.insert("loop1".to_string(), DataBlock::Loop(loop1));
+    
+    let mut loop2 = LoopBlock::new();
+    loop2.add_column("col1");
+    loop2.add_column("col2");
+    loop2.add_row(vec![DataValue::Integer(1), DataValue::Integer(2)]).unwrap();
+    blocks.insert("loop2".to_string(), DataBlock::Loop(loop2));
+    
+    let stats = StarStats::from_blocks(&blocks);
+    
+    // Test has_loop_blocks
+    assert!(stats.has_loop_blocks());
+    
+    // Test has_simple_blocks
+    assert!(stats.has_simple_blocks());
+    
+    // Test avg_rows_per_loop
+    assert_eq!(stats.avg_rows_per_loop(), 2.0); // (3 + 1) / 2 = 2.0
+    
+    // Test avg_cols_per_loop
+    assert_eq!(stats.avg_cols_per_loop(), 1.5); // (1 + 2) / 2 = 1.5
+    
+    // Test get_block_stats for existing block
+    let loop1_stats = stats.get_block_stats("loop1");
+    assert!(loop1_stats.is_some());
+    if let Some(DataBlockStats::Loop(l)) = loop1_stats {
+        assert_eq!(l.n_rows, 3);
+        assert_eq!(l.n_cols, 1);
+    }
+    
+    // Test get_block_stats for non-existent block
+    assert!(stats.get_block_stats("nonexistent").is_none());
+    
+    // Test with only simple blocks
+    let mut simple_only = std::collections::HashMap::new();
+    simple_only.insert("s1".to_string(), DataBlock::Simple(SimpleBlock::new()));
+    let simple_stats = StarStats::from_blocks(&simple_only);
+    
+    assert!(!simple_stats.has_loop_blocks());
+    assert!(simple_stats.has_simple_blocks());
+    assert_eq!(simple_stats.avg_rows_per_loop(), 0.0);
+    assert_eq!(simple_stats.avg_cols_per_loop(), 0.0);
 }
 
 /// Test all applicable APIs on all files
