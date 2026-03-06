@@ -2,7 +2,6 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use emstar::{write, DataBlock, DataValue, LoopBlock};
-use smartstring::alias::String as SmartString;
 use std::collections::HashMap;
 
 fn create_large_loop_block(n_rows: usize) -> LoopBlock {

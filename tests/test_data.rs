@@ -3,6 +3,9 @@
 //! This module provides functions to generate large test datasets for performance testing:
 //! - 3 simple blocks with 20 key-value pairs each
 //! - 3 loop blocks with 5 million rows total (distributed) and 20 columns
+//!
+//! Run this file to generate benchmark data:
+//!   cargo run --bin test_data -- --output benchmark.star
 
 use emstar::{DataBlock, DataValue, LoopBlock, SimpleBlock};
 use std::collections::HashMap;
@@ -222,6 +225,75 @@ pub fn generate_benchmark_data() -> HashMap<String, DataBlock> {
 pub fn write_benchmark_file(path: &str) -> Result<(), emstar::Error> {
     let data = generate_benchmark_data();
     emstar::write(&data, path)
+}
+
+fn print_usage() {
+    println!("Test Data Generator for emstar");
+    println!();
+    println!("Usage: cargo run --bin test_data -- --output <file>");
+    println!();
+    println!("Options:");
+    println!("  --output <file>    Output file path (default: benchmark.star)");
+    println!("  --help             Show this help message");
+    println!();
+    println!("Example:");
+    println!("  cargo run --bin test_data -- --output /tmp/benchmark.star");
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    
+    // Parse arguments
+    let mut output_file = "benchmark.star".to_string();
+    
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--output" | "-o" => {
+                if i + 1 < args.len() {
+                    output_file = args[i + 1].clone();
+                    i += 1;
+                } else {
+                    eprintln!("Error: --output requires a file path");
+                    print_usage();
+                    std::process::exit(1);
+                }
+            }
+            "--help" | "-h" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            _ => {
+                eprintln!("Error: Unknown argument: {}", args[i]);
+                print_usage();
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+    
+    println!("Generating benchmark data...");
+    println!("Output file: {}", output_file);
+    println!();
+    
+    // Generate and write benchmark data
+    match write_benchmark_file(&output_file) {
+        Ok(()) => {
+            println!();
+            println!("✓ Benchmark data successfully written to: {}", output_file);
+            println!();
+            println!("Data summary:");
+            println!("  - 3 simple blocks (20 entries each)");
+            println!("  - 3 loop blocks (5,000,000 rows total, 20 columns)");
+            println!("    * particles_1: 2,000,000 rows");
+            println!("    * particles_2: 2,000,000 rows");
+            println!("    * particles_3: 1,000,000 rows");
+        }
+        Err(e) => {
+            eprintln!("Error: Failed to write benchmark file: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 #[cfg(test)]
