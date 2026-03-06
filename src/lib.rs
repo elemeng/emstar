@@ -586,7 +586,7 @@ pub fn delete<P: AsRef<Path>>(path: P) -> Result<()> {
 /// # Ok::<(), emstar::Error>(())
 /// ```
 pub fn exists<P: AsRef<Path>>(path: P) -> bool {
-    path.as_ref().is_file()
+    path.as_ref().exists()
 }
 
 // ============================================================================
