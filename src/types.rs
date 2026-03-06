@@ -476,7 +476,7 @@ impl LoopBlock {
     /// This operation is O(n) where n is the number of rows in the column,
     /// as Polars DataFrames use immutable columnar storage. The entire column
     /// must be recreated to change a single value. For batch updates to an
-    /// entire row, use [`update_row`] which minimizes overhead.
+    /// entire row, use [`Self::update_row`] which minimizes overhead.
     pub fn set_by_name(&mut self, row_idx: usize, col_name: &str, value: DataValue) -> Result<(), crate::Error> {
         // Check if column exists first
         if !self.has_column(col_name) {
@@ -616,7 +616,7 @@ impl LoopBlock {
         self.df.get_column_names().iter().any(|&c| c.as_str() == col_name)
     }
 
-    /// Iterate over rows, returning Vec<DataValue> for each row
+    /// Iterate over rows, returning `Vec<DataValue>` for each row
     pub fn iter_rows(&self) -> impl Iterator<Item = Vec<DataValue>> + '_ {
         let nrows = self.row_count();
         let columns: Vec<_> = self.df.get_columns().iter().collect();
