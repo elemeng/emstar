@@ -557,7 +557,7 @@ pub fn update<P: AsRef<Path>>(data_blocks: &HashMap<String, DataBlock>, path: P)
 /// # Ok::<(), emstar::Error>(())
 /// ```
 pub fn delete<P: AsRef<Path>>(path: P) -> Result<()> {
-    std::fs::remove_file(path)?;
+    std::fs::remove_file(path).map_err(Error::Io)?;
     Ok(())
 }
 

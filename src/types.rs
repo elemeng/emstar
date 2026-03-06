@@ -170,18 +170,6 @@ pub struct LoopBlock {
 }
 
 impl LoopBlock {
-    /// Get a reference to the underlying DataFrame
-    #[inline]
-    pub fn df(&self) -> &DataFrame {
-        &self.df
-    }
-
-    /// Get a mutable reference to the underlying DataFrame
-    #[inline]
-    pub fn df_mut(&mut self) -> &mut DataFrame {
-        &mut self.df
-    }
-
     /// Create a builder for constructing a LoopBlock with a fluent API
     ///
     /// # Example
@@ -270,23 +258,9 @@ impl LoopBlock {
         self.df.width()
     }
 
-    /// Get number of rows (deprecated: use `row_count` instead)
-    #[deprecated(since = "0.2.0", note = "Use `row_count` instead")]
-    #[inline]
-    pub fn nrows(&self) -> usize {
-        self.row_count()
-    }
-
-    /// Get number of columns (deprecated: use `column_count` instead)
-    #[deprecated(since = "0.2.0", note = "Use `column_count` instead")]
-    #[inline]
-    pub fn ncols(&self) -> usize {
-        self.column_count()
-    }
-
-    /// Get column names
-    pub fn columns(&self) -> Vec<String> {
-        self.df.get_column_names().iter().map(|s| s.as_str().to_string()).collect()
+    /// Get column names as a vector of string slices (no allocations)
+    pub fn columns(&self) -> Vec<&str> {
+        self.df.get_column_names().iter().map(|s| s.as_str()).collect()
     }
 
     /// Add a new empty column with the given name (String type by default)
@@ -588,7 +562,8 @@ impl LoopBlock {
         }
         
         // Update each value in the row
-        let col_names = self.columns();
+        // Collect column names first to avoid borrow checker issues
+        let col_names: Vec<String> = self.columns().iter().map(|&s| s.to_string()).collect();
         for (col_name, value) in col_names.iter().zip(values.iter()) {
             self.set_by_name(row_idx, col_name, value.clone())?;
         }
@@ -633,7 +608,7 @@ impl LoopBlock {
     pub fn clear_rows(&mut self) {
         let col_names = self.columns();
         let empty_columns: Vec<Column> = col_names.iter()
-            .map(|name| Series::new(name.as_str().into(), Vec::<String>::new()).into())
+            .map(|&name| Series::new(name.into(), Vec::<String>::new()).into())
             .collect();
         self.df = DataFrame::new(empty_columns).unwrap_or_else(|_| DataFrame::empty());
     }
@@ -652,10 +627,11 @@ impl LoopBlock {
     /// Iterate over rows, returning Vec<DataValue> for each row
     pub fn iter_rows(&self) -> impl Iterator<Item = Vec<DataValue>> + '_ {
         let nrows = self.row_count();
-        let col_names = self.columns();
+        let columns: Vec<_> = self.df.get_columns().iter().collect();
+        
         (0..nrows).map(move |row_idx| {
-            col_names.iter()
-                .map(|col_name| self.get_by_name(row_idx, col_name).unwrap_or(DataValue::Null))
+            columns.iter()
+                .map(|col| column_value_at(col, row_idx))
                 .collect()
         })
     }
@@ -841,14 +817,14 @@ impl LoopBlockBuilder {
     pub fn build(self) -> crate::Result<LoopBlock> {
         let mut block = LoopBlock::new();
 
-        // Add columns if specified
-        for col in &self.columns {
-            block.add_column(col);
+        // Add columns if specified (take ownership to avoid cloning)
+        for col in self.columns {
+            block.add_column(&col);
         }
 
-        // Add rows
-        for row in &self.rows {
-            block.add_row(row.clone())?;
+        // Add rows (take ownership to avoid cloning)
+        for row in self.rows {
+            block.add_row(row)?;
         }
 
         Ok(block)
@@ -1134,6 +1110,46 @@ impl DataBlock {
         match self {
             DataBlock::Simple(block) => block.len(),
             DataBlock::Loop(block) => block.row_count(),
+        }
+    }
+}
+
+/// Helper function to extract a DataValue from a column at a specific row
+#[inline]
+fn column_value_at(column: &Column, row_idx: usize) -> DataValue {
+    match column.dtype() {
+        DataType::Float64 => {
+            column.f64()
+                .ok()
+                .and_then(|ca| ca.get(row_idx))
+                .map(DataValue::Float)
+                .unwrap_or(DataValue::Null)
+        }
+        DataType::Int64 => {
+            column.i64()
+                .ok()
+                .and_then(|ca| ca.get(row_idx))
+                .map(DataValue::Integer)
+                .unwrap_or(DataValue::Null)
+        }
+        DataType::String => {
+            column.str()
+                .ok()
+                .and_then(|ca| ca.get(row_idx))
+                .map(|s| DataValue::String(s.into()))
+                .unwrap_or(DataValue::Null)
+        }
+        _ => {
+            column.get(row_idx)
+                .ok()
+                .map(|av| {
+                    if av.is_null() {
+                        DataValue::Null
+                    } else {
+                        DataValue::String(av.to_string().into())
+                    }
+                })
+                .unwrap_or(DataValue::Null)
         }
     }
 }

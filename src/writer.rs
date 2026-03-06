@@ -59,7 +59,7 @@ fn format_loop_block(name: &str, block: &LoopBlock) -> String {
     output.push('\n');
     output.push_str("loop_\n");
 
-    let df = block.df();
+    let df = block.as_dataframe();
     let col_names = df.get_column_names();
 
     // Write column headers
@@ -71,15 +71,15 @@ fn format_loop_block(name: &str, block: &LoopBlock) -> String {
     let nrows = df.height();
     if nrows > 0 {
         for row_idx in 0..nrows {
-            let mut row_values = Vec::new();
-            for col_name in &col_names {
-                if let Some(value) = block.get_by_name(row_idx, col_name) {
-                    row_values.push(format_value(&value));
-                } else {
-                    row_values.push("<NA>".to_string());
+            for (i, col_name) in col_names.iter().enumerate() {
+                if i > 0 {
+                    output.push('\t');
+                }
+                match block.get_by_name(row_idx, col_name) {
+                    Some(value) => output.push_str(&format_value(&value)),
+                    None => output.push_str("<NA>"),
                 }
             }
-            output.push_str(&row_values.join("\t"));
             output.push('\n');
         }
     }
@@ -96,7 +96,7 @@ fn format_value(value: &DataValue) -> String {
             if s.contains(' ') || s.is_empty() {
                 format!("\"{}\"", s)
             } else {
-                s.to_string()
+                s.as_str().to_string()
             }
         }
         DataValue::Integer(i) => itoa::Buffer::new().format(*i).to_string(),
