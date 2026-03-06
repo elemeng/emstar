@@ -83,31 +83,28 @@ write(&data, "output.star")?;
 # Ok::<(), emstar::Error>(())
 ```
 
-## CRUD Operations
+## File Operations
 
-emstar provides comprehensive CRUD (Create, Read, Update, Delete) APIs:
-
-### File-level CRUD
+emstar provides simple read/write operations. For file management, use the Rust standard library:
 
 ```rust
-use emstar::{create, open, update, delete, exists, stats};
+use emstar::{read, write, stats};
+use std::path::Path;
+use std::fs;
 
-// Create a new file
-create(&data_blocks, "output.star")?;
+// Read a file
+let data = read("particles.star")?;
 
-// Open (read) a file
-let data = open("particles.star")?;
-
-// Update (overwrite) a file
-update(&data_blocks, "output.star")?;
-
-// Delete a file
-delete("old.star")?;
+// Write a file (creates new or overwrites existing)
+write(&data_blocks, "output.star")?;
 
 // Check if file exists
-if exists("particles.star") {
+if Path::new("particles.star").exists() {
     println!("File exists!");
 }
+
+// Delete a file
+fs::remove_file("old.star")?;
 
 // Get file statistics
 let file_stats = stats("particles.star")?;
@@ -283,7 +280,7 @@ if let Some(DataBlockStats::Loop(l)) = file_stats.get_block_stats("particles") {
 }
 
 // Get stats from in-memory data
-let blocks: HashMap<String, DataBlock> = open("particles.star")?;
+let blocks: HashMap<String, DataBlock> = read("particles.star")?;
 let mem_stats = block_stats(&blocks);
 ```
 
@@ -354,14 +351,11 @@ println!("Rows: {}, Cols: {}, Cells: {}", stats.n_rows, stats.n_cols, stats.n_ce
 
 | Function | Description |
 |----------|-------------|
-| `read(path)` | Read a STAR file |
-| `write(&data, path)` | Write data to a STAR file |
+| `read(path)` | Read a STAR file from disk |
+| `write(&data, path)` | Write data to a STAR file (creates or overwrites) |
 | `to_string(&data)` | Convert data to STAR format string |
-| `create(&data, path)` | Create a new STAR file (alias for write) |
-| `open(path)` | Open a STAR file (alias for read) |
-| `update(&data, path)` | Update a STAR file (alias for write) |
-| `delete(path)` | Delete a STAR file |
-| `exists(path)` | Check if a STAR file exists |
+
+For file management (delete, exists), use `std::fs` and `std::path::Path`.
 
 ### Statistics Functions
 
