@@ -206,7 +206,7 @@ fn test_loopblock_builder_rows_method() {
     // Test the builder pattern using rows() method
     let block = LoopBlock::builder()
         .columns(&["x", "y"])
-        .rows(&[
+        .rows(vec![
             vec![DataValue::Float(1.0), DataValue::Float(2.0)],
             vec![DataValue::Float(3.0), DataValue::Float(4.0)],
             vec![DataValue::Float(5.0), DataValue::Float(6.0)],

@@ -3,8 +3,9 @@
 use crate::error::Result;
 use crate::types::{DataBlock, DataValue, LoopBlock, SimpleBlock};
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::fs::File;
-use std::io::Write;
+use std::io::Write as IoWrite;
 use std::path::Path;
 
 /// Write data blocks to a STAR file
@@ -41,11 +42,11 @@ pub fn data_blocks_to_string(data_blocks: &HashMap<String, DataBlock>) -> Result
 /// Format a simple block
 fn format_simple_block(name: &str, block: &SimpleBlock) -> String {
     let mut output = String::new();
-    output.push_str(&format!("data_{}\n", name));
+    writeln!(output, "data_{}", name).unwrap();
     output.push('\n');
 
-    for (key, value) in block.data() {
-        output.push_str(&format!("_{}\t\t\t{}\n", key, format_value(value)));
+    for (key, value) in block.iter() {
+        write!(output, "_{}\t\t\t{}\n", key, format_value(value)).unwrap();
     }
 
     output.push_str("\n\n");
@@ -55,7 +56,7 @@ fn format_simple_block(name: &str, block: &SimpleBlock) -> String {
 /// Format a loop block
 fn format_loop_block(name: &str, block: &LoopBlock) -> String {
     let mut output = String::new();
-    output.push_str(&format!("data_{}\n", name));
+    writeln!(output, "data_{}", name).unwrap();
     output.push('\n');
     output.push_str("loop_\n");
 
@@ -64,7 +65,7 @@ fn format_loop_block(name: &str, block: &LoopBlock) -> String {
 
     // Write column headers
     for (idx, column) in col_names.iter().enumerate() {
-        output.push_str(&format!("_{} #{}\n", column, idx + 1));
+        writeln!(output, "_{} #{}", column, idx + 1).unwrap();
     }
 
     // Write data rows from DataFrame
@@ -96,7 +97,7 @@ fn format_value(value: &DataValue) -> String {
             if s.contains(' ') || s.is_empty() {
                 format!("\"{}\"", s)
             } else {
-                s.as_str().to_string()
+                s.to_string()
             }
         }
         DataValue::Integer(i) => itoa::Buffer::new().format(*i).to_string(),
