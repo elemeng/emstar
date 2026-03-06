@@ -1,9 +1,10 @@
 //! Integration tests for emstar
 
 use emstar::{
-    create, delete, exists, open, read, stats, update, write,
+    read, write, stats,
     DataBlock, DataValue, LoopBlock, SimpleBlock,
 };
+use std::path::Path;
 use std::collections::HashMap;
 
 #[test]
@@ -219,59 +220,59 @@ fn test_loopblock_builder_rows_method() {
 }
 
 #[test]
-fn test_file_level_crud_create() {
-    // Test the create() function (data first, path second)
+fn test_file_level_write_create() {
+    // Test write() creates a new file
     let mut data = HashMap::new();
     let mut simple = SimpleBlock::new();
     simple.set("key", DataValue::String("value".into()));
     data.insert("test".to_string(), DataBlock::Simple(simple));
 
-    // Create file using new API: create(&data, path)
-    create(&data, "/tmp/test_create.star").unwrap();
+    // Write file (creates if not exists)
+    write(&data, "/tmp/test_write.star").unwrap();
 
-    // Verify it exists
-    assert!(exists("/tmp/test_create.star"));
+    // Verify it exists using standard library
+    assert!(Path::new("/tmp/test_write.star").exists());
 
     // Read and verify
-    let parsed = read("/tmp/test_create.star").unwrap();
+    let parsed = read("/tmp/test_write.star").unwrap();
     assert_eq!(parsed.len(), 1);
 }
 
 #[test]
-fn test_file_level_crud_open() {
-    // Test the open() function (alias for read)
+fn test_file_level_read() {
+    // Test the read() function
     let mut data = HashMap::new();
     let mut simple = SimpleBlock::new();
     simple.set("key", DataValue::Integer(42));
     data.insert("test".to_string(), DataBlock::Simple(simple));
 
-    write(&data, "/tmp/test_open.star").unwrap();
+    write(&data, "/tmp/test_read.star").unwrap();
 
-    // Use open() instead of read()
-    let parsed = open("/tmp/test_open.star").unwrap();
+    // Use read()
+    let parsed = read("/tmp/test_read.star").unwrap();
     assert_eq!(parsed.len(), 1);
 }
 
 #[test]
-fn test_file_level_crud_update() {
-    // Test the update() function (data first, path second)
+fn test_file_level_write_update() {
+    // Test write() can update existing file
     let mut data = HashMap::new();
     let mut simple = SimpleBlock::new();
     simple.set("original", DataValue::String("value".into()));
     data.insert("test".to_string(), DataBlock::Simple(simple));
 
-    create(&data, "/tmp/test_update.star").unwrap();
+    write(&data, "/tmp/test_write_update.star").unwrap();
 
-    // Update with new data using new API: update(&data, path)
+    // Update with new data using write()
     let mut new_data = HashMap::new();
     let mut new_simple = SimpleBlock::new();
     new_simple.set("updated", DataValue::Integer(100));
     new_data.insert("test".to_string(), DataBlock::Simple(new_simple));
 
-    update(&new_data, "/tmp/test_update.star").unwrap();
+    write(&new_data, "/tmp/test_write_update.star").unwrap();
 
     // Verify update
-    let parsed = read("/tmp/test_update.star").unwrap();
+    let parsed = read("/tmp/test_write_update.star").unwrap();
     if let Some(DataBlock::Simple(block)) = parsed.get("test") {
         assert_eq!(block.get("updated"), Some(&DataValue::Integer(100)));
         assert_eq!(block.get("original"), None); // Original key should be gone
@@ -279,19 +280,19 @@ fn test_file_level_crud_update() {
 }
 
 #[test]
-fn test_file_level_crud_delete() {
+fn test_file_level_delete() {
     // Create a file
     let mut data = HashMap::new();
     data.insert("test".to_string(), DataBlock::Simple(SimpleBlock::new()));
-    create(&data, "/tmp/test_delete.star").unwrap();
+    write(&data, "/tmp/test_delete.star").unwrap();
 
-    assert!(exists("/tmp/test_delete.star"));
+    assert!(Path::new("/tmp/test_delete.star").exists());
 
-    // Delete it
-    delete("/tmp/test_delete.star").unwrap();
+    // Delete it using standard library
+    std::fs::remove_file("/tmp/test_delete.star").unwrap();
 
     // Verify it's gone
-    assert!(!exists("/tmp/test_delete.star"));
+    assert!(!Path::new("/tmp/test_delete.star").exists());
 }
 
 #[test]
@@ -323,7 +324,7 @@ fn test_stats_api() {
     data.insert("loop1".to_string(), DataBlock::Loop(loop1));
     data.insert("loop2".to_string(), DataBlock::Loop(loop2));
 
-    create(&data, "/tmp/test_stats.star").unwrap();
+    write(&data, "/tmp/test_stats.star").unwrap();
 
     // Get stats
     let file_stats = stats("/tmp/test_stats.star").unwrap();

@@ -1,9 +1,10 @@
 //! Comprehensive API tests on real STAR files from tests/data
 
 use emstar::{
-    block_stats, create, delete, exists, open, read, stats, update, write,
+    block_stats, read, write, stats,
     DataBlock, DataBlockStats, DataValue, LoopBlock, SimpleBlock,
 };
+use std::path::Path;
 
 const TEST_DATA_DIR: &str = "tests/data";
 
@@ -286,39 +287,39 @@ fn test_file_level_crud() {
     let test_file = "/tmp/test_api_crud.star";
     let source = format!("{}/one_loop.star", TEST_DATA_DIR);
     
-    // Test exists()
-    assert!(exists(&source));
-    assert!(!exists(test_file));
+    // Test file existence using standard library
+    assert!(Path::new(&source).exists());
+    assert!(!Path::new(test_file).exists());
     
     // Copy source to test file using read/write
     let data = read(&source).unwrap();
     
-    // Test create()
-    create(&data, test_file).expect("Failed to create file");
-    assert!(exists(test_file));
+    // Test write() creates file
+    write(&data, test_file).expect("Failed to create file");
+    assert!(Path::new(test_file).exists());
     
-    // Test open()
-    let loaded = open(test_file).expect("Failed to open file");
+    // Test read()
+    let loaded = read(test_file).expect("Failed to read file");
     assert_eq!(loaded.len(), data.len());
     
-    // Test update()
+    // Test write() can update file
     let mut updated_data = data.clone();
     let mut new_block = SimpleBlock::new();
     new_block.set("test_key", DataValue::String("test_value".into()));
     updated_data.insert("test_block".to_string(), DataBlock::Simple(new_block));
     
-    update(&updated_data, test_file).expect("Failed to update file");
+    write(&updated_data, test_file).expect("Failed to update file");
     
-    let reloaded = open(test_file).unwrap();
+    let reloaded = read(test_file).unwrap();
     assert!(reloaded.contains_key("test_block"));
     
     // Test stats() on the file
     let file_stats = stats(test_file).unwrap();
     assert_eq!(file_stats.n_blocks, updated_data.len());
     
-    // Test delete()
-    delete(test_file).expect("Failed to delete file");
-    assert!(!exists(test_file));
+    // Test file deletion using standard library
+    std::fs::remove_file(test_file).expect("Failed to delete file");
+    assert!(!Path::new(test_file).exists());
 }
 
 /// Test write/read round-trip on all files
@@ -588,8 +589,8 @@ fn test_all_apis_on_all_files() {
         let path = format!("{}/{}", TEST_DATA_DIR, file);
         println!("Testing all APIs on: {}", path);
         
-        // Test exists()
-        assert!(exists(&path), "exists() failed for {}", file);
+        // Verify file exists using standard library
+        assert!(Path::new(&path).exists(), "File not found: {}", file);
         
         // Test read()
         let data = read(&path).expect(&format!("read() failed for {}", file));
@@ -808,7 +809,7 @@ fn test_loopblock_builder_write_read_roundtrip() {
     data.insert("particles".to_string(), DataBlock::Loop(block));
 
     let test_file = "/tmp/test_builder_roundtrip.star";
-    create(&data, test_file).expect("Failed to create file");
+    write(&data, test_file).expect("Failed to write file");
 
     let parsed = read(test_file).expect("Failed to read file");
     let parsed_block = parsed.get("particles").expect("Missing particles block");
@@ -829,5 +830,5 @@ fn test_loopblock_builder_write_read_roundtrip() {
     }
 
     // Cleanup
-    delete(test_file).expect("Failed to delete test file");
+    std::fs::remove_file(test_file).expect("Failed to delete test file");
 }

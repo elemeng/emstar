@@ -142,6 +142,7 @@ fn parse_simple_line(line: &str, block: &mut SimpleBlock) -> Result<()> {
 }
 
 /// Parse a loop block (table)
+/// Collects all values first, then determines the best column type based on all values
 fn parse_loop_block<R: BufRead>(
     lines: &mut std::iter::Enumerate<std::io::Lines<R>>,
     start_line: usize,
@@ -222,7 +223,7 @@ fn parse_loop_block<R: BufRead>(
     }
 
     // Build Polars DataFrame from column data
-    let mut columns: Vec<Column> = Vec::new();
+    let mut columns: Vec<Column> = Vec::with_capacity(ncols);
     for (col_name, col_values) in column_names.iter().zip(column_data.iter()) {
         let series = data_values_to_series(col_name, col_values)?;
         columns.push(series.into());

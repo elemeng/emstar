@@ -1,15 +1,16 @@
 //! Comprehensive CRUD operations example for emstar
 //!
-//! This example demonstrates all CRUD (Create, Read, Update, Delete) operations
+//! This example demonstrates Create, Read, and Update operations
 //! for working with STAR files.
 
 use emstar::{
-    create, open, update, delete, exists,
-    DataBlock, DataValue, LoopBlock, SimpleBlock
+    read, write, DataBlock, DataValue, LoopBlock, SimpleBlock
 };
+use std::collections::HashMap;
+use std::path::Path;
 
+/// Helper function to create a LoopBlock using the builder pattern
 fn create_particles_with_builder() -> emstar::Result<LoopBlock> {
-    // Demonstrate the builder pattern for creating LoopBlocks
     LoopBlock::builder()
         .columns(&["rlnCoordinateX", "rlnCoordinateY", "rlnAnglePsi", "rlnImageName"])
         .row(vec![
@@ -32,7 +33,6 @@ fn create_particles_with_builder() -> emstar::Result<LoopBlock> {
         ])
         .build()
 }
-use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== emstar CRUD Operations Example ===\n");
@@ -59,8 +59,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     data_blocks.insert("particles".to_string(), DataBlock::Loop(particles));
 
-    // Write to file
-    create(&data_blocks, file_path)?;
+    // Write to file (creates or overwrites)
+    write(&data_blocks, file_path)?;
     println!("   ✓ Created STAR file with general metadata and {} particles\n", 3);
 
     // =========================================================================
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // =========================================================================
     println!("2. READ: Reading data from STAR file...");
     
-    let data_blocks = open(file_path)?;
+    let data_blocks = read(file_path)?;
     
     // Read SimpleBlock
     if let Some(DataBlock::Simple(general)) = data_blocks.get("general") {
@@ -115,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // =========================================================================
     println!("3. UPDATE: Modifying data...");
     
-    let mut data_blocks = open(file_path)?;
+    let mut data_blocks = read(file_path)?;
     
     // Update SimpleBlock
     if let Some(DataBlock::Simple(general)) = data_blocks.get_mut("general") {
@@ -152,11 +152,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     // Save updated data
-    update(&data_blocks, file_path)?;
+    write(&data_blocks, file_path)?;
     println!("   ✓ Saved changes to file\n");
 
     // Verify updates
-    let data_blocks = open(file_path)?;
+    let data_blocks = read(file_path)?;
     if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
         println!("   Verification after updates:");
         println!("     - Total particles: {}", particles.row_count());
@@ -165,11 +165,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // =========================================================================
-    // DELETE - Remove data
+    // DELETE - Remove data from blocks
     // =========================================================================
-    println!("4. DELETE: Removing data...");
+    println!("4. DELETE: Removing data from blocks...");
     
-    let mut data_blocks = open(file_path)?;
+    let mut data_blocks = read(file_path)?;
     
     if let Some(DataBlock::Simple(general)) = data_blocks.get_mut("general") {
         // Remove a key from SimpleBlock
@@ -187,11 +187,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // println!("   ✓ Removed rlnAnglePsi column");
     }
     
-    update(&data_blocks, file_path)?;
+    write(&data_blocks, file_path)?;
     println!("   ✓ Saved changes\n");
 
     // Verify deletions
-    let data_blocks = open(file_path)?;
+    let data_blocks = read(file_path)?;
     if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
         println!("   Verification after deletions:");
         println!("     - Total particles: {}", particles.row_count());
@@ -203,13 +203,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // =========================================================================
     println!("5. UTILITY FUNCTIONS:");
     
-    // Check if file exists
-    if exists(file_path) {
+    // Check if file exists using standard library
+    if Path::new(file_path).exists() {
         println!("   ✓ File exists: {}", file_path);
     }
     
     // Check column existence
-    let data_blocks = open(file_path)?;
+    let data_blocks = read(file_path)?;
     if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
         println!("   ✓ Has 'rlnCoordinateX' column: {}", particles.has_column("rlnCoordinateX"));
         println!("   ✓ Has 'rlnNonExistent' column: {}", particles.has_column("rlnNonExistent"));
@@ -220,9 +220,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Cleanup
     // =========================================================================
     println!("6. CLEANUP: Deleting the file...");
-    delete(file_path)?;
+    std::fs::remove_file(file_path)?;
     println!("   ✓ File deleted: {}", file_path);
-    println!("   ✓ File exists after delete: {}", exists(file_path));
+    println!("   ✓ File exists after delete: {}", Path::new(file_path).exists());
 
     println!("\n=== CRUD Operations Example Completed Successfully! ===");
     Ok(())

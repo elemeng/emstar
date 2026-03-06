@@ -47,7 +47,7 @@
 //! ## Creating a New STAR File
 //!
 //! ```rust
-//! use emstar::{create, SimpleBlock, LoopBlock, DataBlock, DataValue};
+//! use emstar::{write, SimpleBlock, LoopBlock, DataBlock, DataValue};
 //! use std::collections::HashMap;
 //!
 //! let mut data = HashMap::new();
@@ -71,7 +71,7 @@
 //!
 //! data.insert("particles".to_string(), DataBlock::Loop(particles));
 //!
-//! create(&data, "output.star")?;
+//! write(&data, "output.star")?;
 //! # Ok::<(), emstar::Error>(())
 //! ```
 //!
@@ -110,16 +110,6 @@
 //! println!("Average rows per block: {:.1}", file_stats.avg_rows_per_loop());
 //! # Ok::<(), emstar::Error>(())
 //! ```
-//!
-//! ## File-Level CRUD Operations
-//!
-//! emstar provides a complete CRUD API for STAR files:
-//!
-//! - **Create**: `create()` - Create a new STAR file
-//! - **Read**: `read()` or `open()` - Read an existing STAR file
-//! - **Update**: `update()` or `write()` - Update/overwrite a STAR file
-//! - **Delete**: `delete()` - Delete a STAR file
-//! - **Exists**: `exists()` - Check if a file exists
 //!
 //! ## Data Block Operations
 //!
@@ -332,7 +322,7 @@ use std::path::Path;
 /// Returns a hashmap of data blocks, where the key is the block name.
 /// Each block can be either a [`SimpleBlock`] (key-value pairs) or a [`LoopBlock`] (tabular data).
 ///
-/// See also: [`open()`], [`stats()`], [`create()`]
+/// See also: [`stats()`]
 ///
 /// # Arguments
 ///
@@ -371,7 +361,7 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<HashMap<String, DataBlock>> {
 /// Creates or overwrites a STAR file with the provided data blocks.
 /// The output format will be standard STAR format compatible with RELION and other cryo-EM software.
 ///
-/// See also: [`create()`], [`update()`], [`to_string()`]
+/// See also: [`to_string()`]
 ///
 /// # Arguments
 ///
@@ -438,156 +428,7 @@ pub fn to_string(data_blocks: &HashMap<String, DataBlock>) -> Result<String> {
     writer::data_blocks_to_string(data_blocks)
 }
 
-// ============================================================================
-// High-level CRUD Functions
-// ============================================================================
 
-/// Create a new STAR file with the given data blocks.
-///
-/// This is a convenience function that writes data blocks to a STAR file.
-/// It will create the file if it doesn't exist, or overwrite it if it does.
-///
-/// See also: [`write()`], [`update()`], [`read()`]
-///
-/// # Arguments
-///
-/// * `data_blocks` - HashMap of data blocks to write
-/// * `path` - Path where the STAR file will be created
-///
-/// # Errors
-///
-/// Returns [`Error::Io`] if the file cannot be created.
-///
-/// # Example
-///
-/// ```rust
-/// use emstar::{create, LoopBlock, SimpleBlock, DataBlock, DataValue};
-/// use std::collections::HashMap;
-///
-/// let mut data = HashMap::new();
-///
-/// // Create a simple block for parameters
-/// let mut simple = SimpleBlock::new();
-/// simple.set("rlnImageSize", DataValue::Integer(256));
-/// data.insert("general".to_string(), DataBlock::Simple(simple));
-///
-/// // Create a loop block for particle data
-/// let mut loop_block = LoopBlock::new();
-/// loop_block.add_column("rlnCoordinateX");
-/// loop_block.add_column("rlnCoordinateY");
-/// loop_block.add_row(vec![DataValue::Float(100.0), DataValue::Float(200.0)]).unwrap();
-/// data.insert("particles".to_string(), DataBlock::Loop(loop_block));
-///
-/// create(&data, "output.star")?;
-/// # Ok::<(), emstar::Error>(())
-/// ```
-pub fn create<P: AsRef<Path>>(data_blocks: &HashMap<String, DataBlock>, path: P) -> Result<()> {
-    write(data_blocks, path)
-}
-
-/// Open a STAR file for reading and return the data blocks.
-///
-/// This is an alias for [`read()`] provided for API consistency with other CRUD operations.
-///
-/// See also: [`read()`], [`create()`], [`exists()`]
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use emstar::open;
-///
-/// let data = open("particles.star")?;
-/// println!("Opened {} blocks", data.len());
-/// # Ok::<(), emstar::Error>(())
-/// ```
-pub fn open<P: AsRef<Path>>(path: P) -> Result<HashMap<String, DataBlock>> {
-    read(path)
-}
-
-/// Update (overwrite) a STAR file with new data blocks.
-///
-/// This is an alias for [`write()`] provided for API consistency with other CRUD operations.
-/// It will completely replace the file contents with the new data blocks.
-///
-/// See also: [`write()`], [`create()`], [`read()`]
-///
-/// # Example
-///
-/// ```rust
-/// use emstar::{update, LoopBlock, DataBlock};
-/// use std::collections::HashMap;
-///
-/// let mut data = HashMap::new();
-/// let mut loop_block = LoopBlock::new();
-/// loop_block.add_column("rlnCoordinateX");
-/// loop_block.add_row(vec![emstar::DataValue::Float(100.0)]).unwrap();
-/// data.insert("particles".to_string(), DataBlock::Loop(loop_block));
-///
-/// update(&data, "output.star")?;
-/// # Ok::<(), emstar::Error>(())
-/// ```
-pub fn update<P: AsRef<Path>>(data_blocks: &HashMap<String, DataBlock>, path: P) -> Result<()> {
-    write(data_blocks, path)
-}
-
-/// Delete a STAR file from disk.
-///
-/// Permanently removes the specified STAR file from the filesystem.
-/// This operation cannot be undone.
-///
-/// See also: [`create()`], [`exists()`]
-///
-/// # Arguments
-///
-/// * `path` - Path to the STAR file to delete
-///
-/// # Errors
-///
-/// Returns [`Error::Io`] if the file cannot be deleted (e.g., file not found, permission denied).
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use emstar::{delete, exists};
-///
-/// if exists("old_file.star") {
-///     delete("old_file.star")?;
-///     println!("File deleted");
-/// }
-/// # Ok::<(), emstar::Error>(())
-/// ```
-pub fn delete<P: AsRef<Path>>(path: P) -> Result<()> {
-    std::fs::remove_file(path).map_err(Error::Io)?;
-    Ok(())
-}
-
-/// Check if a STAR file exists.
-///
-/// Returns `true` if the file exists, `false` otherwise.
-/// This is a non-destructive operation that does not open or read the file.
-///
-/// See also: [`read()`], [`open()`], [`delete()`]
-///
-/// # Arguments
-///
-/// * `path` - Path to check
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use emstar::{exists, read};
-///
-/// if exists("particles.star") {
-///     let data = read("particles.star")?;
-///     println!("File exists and contains {} blocks", data.len());
-/// } else {
-///     println!("File does not exist");
-/// }
-/// # Ok::<(), emstar::Error>(())
-/// ```
-pub fn exists<P: AsRef<Path>>(path: P) -> bool {
-    path.as_ref().is_file()
-}
 
 // ============================================================================
 // Statistics Functions

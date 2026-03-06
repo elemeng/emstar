@@ -8,6 +8,11 @@ use std::fs::File;
 use std::io::Write as IoWrite;
 use std::path::Path;
 
+/// Initial buffer capacity for formatting a simple block (tuned for typical metadata blocks)
+const SIMPLE_BLOCK_BUF_CAPACITY: usize = 1024;
+/// Initial buffer capacity for formatting a loop block (tuned for small tables)
+const LOOP_BLOCK_BUF_CAPACITY: usize = 4096;
+
 /// Write data blocks to a STAR file
 pub fn write_file(data_blocks: &HashMap<String, DataBlock>, path: &Path) -> Result<()> {
     let content = data_blocks_to_string(data_blocks)?;
@@ -39,13 +44,16 @@ pub fn data_blocks_to_string(data_blocks: &HashMap<String, DataBlock>) -> Result
     Ok(output)
 }
 
-/// Format a simple block
+/// Format a simple block with optimized single-allocation strategy
 fn format_simple_block(name: &str, block: &SimpleBlock) -> String {
-    let mut output = String::new();
+    // Pre-allocate with estimated capacity to minimize reallocations
+    let mut output = String::with_capacity(SIMPLE_BLOCK_BUF_CAPACITY);
+    
     writeln!(output, "data_{}", name).unwrap();
     output.push('\n');
 
     for (key, value) in block.iter() {
+        // Use single write! call to minimize formatting overhead
         write!(output, "_{}\t\t\t{}\n", key, format_value(value)).unwrap();
     }
 
@@ -53,15 +61,20 @@ fn format_simple_block(name: &str, block: &SimpleBlock) -> String {
     output
 }
 
-/// Format a loop block
+/// Format a loop block with optimized allocation strategy
 fn format_loop_block(name: &str, block: &LoopBlock) -> String {
-    let mut output = String::new();
+    let df = block.as_dataframe();
+    let col_names = df.get_column_names();
+    let nrows = df.height();
+    let ncols = col_names.len();
+    
+    // Estimate capacity: headers + rows (avg 50 bytes per cell for numeric data)
+    let estimated_capacity = LOOP_BLOCK_BUF_CAPACITY + nrows * ncols * 50;
+    let mut output = String::with_capacity(estimated_capacity);
+    
     writeln!(output, "data_{}", name).unwrap();
     output.push('\n');
     output.push_str("loop_\n");
-
-    let df = block.as_dataframe();
-    let col_names = df.get_column_names();
 
     // Write column headers
     for (idx, column) in col_names.iter().enumerate() {
@@ -69,7 +82,6 @@ fn format_loop_block(name: &str, block: &LoopBlock) -> String {
     }
 
     // Write data rows from DataFrame
-    let nrows = df.height();
     if nrows > 0 {
         for row_idx in 0..nrows {
             for (i, col_name) in col_names.iter().enumerate() {

@@ -67,7 +67,7 @@ let data = read("particles.star")?;
 
 ### `write`
 
-Write data blocks to a STAR file.
+Write data blocks to a STAR file. Creates a new file or overwrites an existing file.
 
 ```rust
 pub fn write<P: AsRef<Path>>(
@@ -86,6 +86,7 @@ pub fn write<P: AsRef<Path>>(
 ```rust
 use emstar::write;
 
+// Create new file or overwrite existing
 write(&data_blocks, "output.star")?;
 ```
 
@@ -117,105 +118,21 @@ let star_string = to_string(&data_blocks)?;
 
 ---
 
-### `create`
+### File Operations with Standard Library
 
-Create a new STAR file with the given data blocks.
-
-```rust
-pub fn create<P: AsRef<Path>>(
-    data_blocks: &HashMap<String, DataBlock>,
-    path: P
-) -> Result<()>
-```
-
-**Example:**
+For file management operations like checking existence or deleting files, use the Rust standard library:
 
 ```rust
-use emstar::{create, SimpleBlock, DataBlock, DataValue};
+use std::path::Path;
+use std::fs;
 
-let mut data = HashMap::new();
-let mut simple = SimpleBlock::new();
-simple.set("rlnImageSize", DataValue::Integer(256));
-data.insert("general".to_string(), DataBlock::Simple(simple));
-
-create(&data, "output.star")?;
-```
-
----
-
-### `open`
-
-Open a STAR file for reading (alias for `read`).
-
-```rust
-pub fn open<P: AsRef<Path>>(path: P) -> Result<HashMap<String, DataBlock>>
-```
-
-**Example:**
-
-```rust
-use emstar::open;
-
-let data = open("particles.star")?;
-```
-
----
-
-### `update`
-
-Update (overwrite) a STAR file with new data blocks (alias for `write`).
-
-```rust
-pub fn update<P: AsRef<Path>>(
-    data_blocks: &HashMap<String, DataBlock>,
-    path: P
-) -> Result<()>
-```
-
-**Example:**
-
-```rust
-use emstar::update;
-
-update(&data_blocks, "output.star")?;
-```
-
----
-
-### `delete`
-
-Delete a STAR file from disk.
-
-```rust
-pub fn delete<P: AsRef<Path>>(path: P) -> Result<()>
-```
-
-**Example:**
-
-```rust
-use emstar::delete;
-
-delete("old_file.star")?;
-```
-
----
-
-### `exists`
-
-Check if a STAR file exists.
-
-```rust
-pub fn exists<P: AsRef<Path>>(path: P) -> bool
-```
-
-**Example:**
-
-```rust
-use emstar::exists;
-
-if exists("particles.star") {
+// Check if file exists
+if Path::new("particles.star").exists() {
     println!("File exists!");
 }
+
+// Delete a file
+fs::remove_file("old_file.star")?;
 ```
 
 ---
@@ -336,7 +253,7 @@ if let Some(value) = block.get("rlnImageSize") {
 Set or update a value.
 
 ```rust
-pub fn set(&mut self, key: SmartString, value: DataValue)
+pub fn set(&mut self, key: &str, value: DataValue)
 ```
 
 **Example:**
@@ -460,7 +377,7 @@ let mut block = LoopBlock::new();
 Add a new column to the block.
 
 ```rust
-pub fn add_column(&mut self, name: SmartString)
+pub fn add_column(&mut self, name: &str)
 ```
 
 **Example:**
@@ -982,7 +899,7 @@ if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
 ### Creating a New STAR File
 
 ```rust
-use emstar::{create, SimpleBlock, LoopBlock, DataBlock, DataValue};
+use emstar::{write, SimpleBlock, LoopBlock, DataBlock, DataValue};
 use std::collections::HashMap;
 
 let mut data = HashMap::new();
@@ -1007,7 +924,8 @@ particles.add_row(vec![
 
 data.insert("particles".to_string(), DataBlock::Loop(particles));
 
-create(&data, "output.star")?;
+// Write to file (creates or overwrites)
+write(&data, "output.star")?;
 ```
 
 ---
@@ -1015,7 +933,7 @@ create(&data, "output.star")?;
 ### Modifying an Existing STAR File
 
 ```rust
-use emstar::{read, write, DataBlock};
+use emstar::{read, write, DataBlock, DataValue};
 
 let mut data_blocks = read("particles.star")?;
 
@@ -1091,7 +1009,7 @@ if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
     
     // Copy column structure
     for col in particles.columns() {
-        filtered.add_column(col.into());
+        filtered.add_column(col);
     }
     
     // Filter rows

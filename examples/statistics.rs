@@ -4,7 +4,7 @@
 //! STAR file contents without fully loading all data.
 
 use emstar::{
-    create, stats, block_stats,
+    write, stats, block_stats,
     DataBlock, DataValue, LoopBlock, SimpleBlock,
     DataBlockStats, StarStats
 };
@@ -87,8 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     data_blocks.insert("micrographs".to_string(), DataBlock::Loop(micrographs));
 
-    // Create the file
-    create(&data_blocks, file_path)?;
+    // Write the file
+    write(&data_blocks, file_path)?;
     println!("✓ Created STAR file\n");
 
     // =========================================================================
