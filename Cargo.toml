@@ -1,0 +1,71 @@
+[package]
+name = "emstar"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["emstar contributors"]
+description = "High-performance STAR file I/O library for cryo-EM workflows"
+license = "MIT"
+repository = "https://github.com/elemeng/emstar"
+homepage = "https://github.com/elemeng/emstar"
+documentation = "https://docs.rs/emstar"
+readme = "README.md"
+keywords = ["star", "starfile", "relion", "cryo-em", "cryo-et"]
+categories = [
+    "parser-implementations",
+    "science",
+    "data-structures",
+    "encoding",
+]
+include = ["src/**/*", "Cargo.toml", "LICENSE", "README.md"]
+
+[dependencies]
+# Core dependencies
+thiserror = "1.0"
+smartstring = "1.0"
+
+# Numeric parsing and formatting
+lexical = "6.1"
+itoa = "1.0"
+ryu = "1.0"
+
+# DataFrame for efficient tabular data operations
+polars = { version = "0.45", default-features = false, features = [
+    "performant",
+] }
+
+# Optional: serde support
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+default = []
+serde = ["dep:serde", "polars/serde", "smartstring/serde"]
+
+[[bench]]
+name = "parse"
+harness = false
+path = "benches/parse.rs"
+
+[[bench]]
+name = "write"
+harness = false
+path = "benches/write.rs"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.bench]
+inherits = "release"
+debug = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+lto = false

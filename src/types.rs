@@ -1,0 +1,1305 @@
+//! Data types for STAR file representation
+
+use polars::prelude::*;
+use smartstring::alias::String as SmartString;
+use std::collections::HashMap;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// Represents a value in a STAR file
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DataValue {
+    /// String value
+    String(SmartString),
+    /// Integer value
+    Integer(i64),
+    /// Float value
+    Float(f64),
+    /// Null/NA value
+    Null,
+}
+
+impl DataValue {
+    /// Try to convert to an integer
+    #[inline]
+    pub fn as_integer(&self) -> Option<i64> {
+        match self {
+            DataValue::Integer(i) => Some(*i),
+            DataValue::Float(f) if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 => {
+                Some(*f as i64)
+            }
+            _ => None,
+        }
+    }
+
+    /// Try to convert to a float
+    #[inline]
+    pub fn as_float(&self) -> Option<f64> {
+        match self {
+            DataValue::Float(f) => Some(*f),
+            DataValue::Integer(i) => Some(*i as f64),
+            _ => None,
+        }
+    }
+
+    /// Try to convert to a string
+    #[inline]
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            DataValue::String(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Check if value is null
+    #[inline]
+    pub fn is_null(&self) -> bool {
+        matches!(self, DataValue::Null)
+    }
+}
+
+/// Represents a simple (non-loop) data block
+/// Contains key-value pairs
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SimpleBlock {
+    /// Key-value pairs in the block
+    data: HashMap<SmartString, DataValue>,
+}
+
+impl SimpleBlock {
+    /// Create a new empty simple block
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            data: HashMap::new(),
+        }
+    }
+
+    /// Get a reference to the underlying data HashMap
+    #[inline]
+    pub fn data(&self) -> &HashMap<SmartString, DataValue> {
+        &self.data
+    }
+
+    /// Get a mutable reference to the underlying data HashMap
+    #[inline]
+    pub fn data_mut(&mut self) -> &mut HashMap<SmartString, DataValue> {
+        &mut self.data
+    }
+
+    /// Get a value by key (Read)
+    #[inline]
+    pub fn get(&self, key: &str) -> Option<&DataValue> {
+        self.data.get(key)
+    }
+
+    /// Set a value (Create/Update)
+    #[inline]
+    pub fn set(&mut self, key: &str, value: DataValue) {
+        self.data.insert(key.into(), value);
+    }
+
+    /// Remove a key-value pair (Delete)
+    #[inline]
+    pub fn remove(&mut self, key: &str) -> Option<DataValue> {
+        self.data.remove(key)
+    }
+
+    /// Check if a key exists
+    #[inline]
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.data.contains_key(key)
+    }
+
+    /// Get all keys in the block
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.data.keys().map(|k| k.as_str())
+    }
+
+    /// Get the number of key-value pairs
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Check if block is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// Clear all key-value pairs (Delete all)
+    #[inline]
+    pub fn clear(&mut self) {
+        self.data.clear();
+    }
+}
+
+impl Default for SimpleBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FromIterator<(SmartString, DataValue)> for SimpleBlock {
+    fn from_iter<T: IntoIterator<Item = (SmartString, DataValue)>>(iter: T) -> Self {
+        Self {
+            data: HashMap::from_iter(iter),
+        }
+    }
+}
+
+impl<const N: usize> From<[(&str, DataValue); N]> for SimpleBlock {
+    fn from(items: [(&str, DataValue); N]) -> Self {
+        Self {
+            data: items.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        }
+    }
+}
+
+/// Represents a loop data block (table-like data)
+/// Uses Polars DataFrame for efficient columnar storage and operations
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct LoopBlock {
+    /// Polars DataFrame containing the tabular data
+    df: DataFrame,
+}
+
+impl LoopBlock {
+    /// Get a reference to the underlying DataFrame
+    #[inline]
+    pub fn df(&self) -> &DataFrame {
+        &self.df
+    }
+
+    /// Get a mutable reference to the underlying DataFrame
+    #[inline]
+    pub fn df_mut(&mut self) -> &mut DataFrame {
+        &mut self.df
+    }
+
+    /// Create a builder for constructing a LoopBlock with a fluent API
+    ///
+    /// # Example
+    /// ```
+    /// use emstar::{LoopBlock, DataValue};
+    ///
+    /// let block = LoopBlock::builder()
+    ///     .columns(&["col1", "col2"])
+    ///     .rows(&[
+    ///         vec![DataValue::Float(1.0), DataValue::Float(2.0)],
+    ///         vec![DataValue::Float(3.0), DataValue::Float(4.0)],
+    ///     ])
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(block.row_count(), 2);
+    /// assert_eq!(block.column_count(), 2);
+    /// ```
+    #[inline]
+    pub fn builder() -> LoopBlockBuilder {
+        LoopBlockBuilder::new()
+    }
+}
+
+impl LoopBlock {
+    /// Create a new empty loop block
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            df: DataFrame::empty(),
+        }
+    }
+
+    /// Create a LoopBlock from a Polars DataFrame
+    #[inline]
+    pub fn from_dataframe(df: DataFrame) -> Self {
+        Self { df }
+    }
+
+    /// Create a LoopBlock with the given column names (all initially empty String type)
+    /// 
+    /// # Example
+    /// ```
+    /// use emstar::LoopBlock;
+    /// 
+    /// let block = LoopBlock::with_columns(&["col1", "col2", "col3"]);
+    /// assert_eq!(block.column_count(), 3);
+    /// ```
+    pub fn with_columns(columns: &[&str]) -> Self {
+        let mut block = Self::new();
+        for col in columns {
+            block.add_column(col);
+        }
+        block
+    }
+
+    /// Builder method to add multiple columns at once
+    pub fn with_columns_mut(mut self, columns: &[&str]) -> Self {
+        for col in columns {
+            self.add_column(col);
+        }
+        self
+    }
+
+    /// Get the underlying DataFrame
+    #[inline]
+    pub fn as_dataframe(&self) -> &DataFrame {
+        &self.df
+    }
+
+    /// Get mutable reference to the underlying DataFrame
+    #[inline]
+    pub fn as_dataframe_mut(&mut self) -> &mut DataFrame {
+        &mut self.df
+    }
+
+    /// Get number of rows
+    #[inline]
+    pub fn row_count(&self) -> usize {
+        self.df.height()
+    }
+
+    /// Get number of columns
+    #[inline]
+    pub fn column_count(&self) -> usize {
+        self.df.width()
+    }
+
+    /// Get number of rows (deprecated: use `row_count` instead)
+    #[deprecated(since = "0.2.0", note = "Use `row_count` instead")]
+    #[inline]
+    pub fn nrows(&self) -> usize {
+        self.row_count()
+    }
+
+    /// Get number of columns (deprecated: use `column_count` instead)
+    #[deprecated(since = "0.2.0", note = "Use `column_count` instead")]
+    #[inline]
+    pub fn ncols(&self) -> usize {
+        self.column_count()
+    }
+
+    /// Get column names
+    pub fn columns(&self) -> Vec<String> {
+        self.df.get_column_names().iter().map(|s| s.as_str().to_string()).collect()
+    }
+
+    /// Add a new empty column with the given name (String type by default)
+    pub fn add_column(&mut self, name: &str) {
+        let n_rows = self.row_count();
+        let series: Series = if n_rows == 0 {
+            Series::new(name.into(), Vec::<String>::new())
+        } else {
+            // Fill with nulls for existing rows
+            let nulls: Vec<Option<String>> = vec![None; n_rows];
+            Series::new(name.into(), nulls)
+        };
+        
+        // Check if dataframe has no columns yet (empty dataframe with no schema)
+        if self.df.width() == 0 {
+            // Create new dataframe with just this column
+            self.df = DataFrame::new(vec![series.into()]).unwrap_or_else(|_| DataFrame::empty());
+        } else {
+            // Add column to existing dataframe
+            let _ = self.df.with_column(series);
+        }
+    }
+
+    /// Add a row to the loop block
+    pub fn add_row(&mut self, values: Vec<DataValue>) -> crate::Result<()> {
+        let n_cols = self.column_count();
+        let n_rows = self.row_count();
+        
+        // If no columns exist, create columns from values (first row defines structure)
+        if n_cols == 0 {
+            if values.is_empty() {
+                return Ok(());
+            }
+            // Create columns from the first row
+            for (i, value) in values.iter().enumerate() {
+                let col_name = format!("col{}", i + 1);
+                let series = single_value_to_series(&col_name, value)?;
+                if i == 0 {
+                    // Create initial dataframe
+                    self.df = DataFrame::new(vec![series.into()])
+                        .map_err(|e| crate::Error::InvalidFormat(format!("Failed to create column: {}", e)))?;
+                } else {
+                    // Add column to existing dataframe
+                    let _ = self.df.with_column(series);
+                }
+            }
+            return Ok(());
+        }
+        
+        // Check column count matches
+        if values.len() != n_cols {
+            return Err(crate::Error::InvalidFormat(
+                format!("Expected {} columns, got {}", n_cols, values.len())
+            ));
+        }
+        
+        // Get existing column names and types for type coercion
+        let col_names = self.columns();
+        let mut existing_dtypes: Vec<DataType> = Vec::with_capacity(col_names.len());
+        for name in &col_names {
+            let col = self.df.column(name)
+                .map_err(|e| crate::Error::InvalidFormat(format!("Failed to get column '{}': {}", name, e)))?;
+            existing_dtypes.push(col.dtype().clone());
+        }
+        
+        // If no rows yet, rebuild the DataFrame with properly typed columns
+        if n_rows == 0 {
+            // Create new columns with proper types inferred from values
+            let mut new_columns: Vec<Column> = Vec::new();
+            for ((col_name, value), dtype) in col_names.iter().zip(values.iter()).zip(existing_dtypes.iter()) {
+                // Infer the best type: if column is String but value is numeric, use numeric type
+                let target_dtype = if matches!(dtype, DataType::String) {
+                    match value {
+                        DataValue::Integer(_) => DataType::Int64,
+                        DataValue::Float(_) => DataType::Float64,
+                        _ => DataType::String,
+                    }
+                } else {
+                    dtype.clone()
+                };
+                
+                let series = value_to_series_with_dtype(col_name, value, &target_dtype)?;
+                new_columns.push(series.into());
+            }
+            // Replace the entire DataFrame
+            self.df = DataFrame::new(new_columns)
+                .map_err(|e| crate::Error::InvalidFormat(format!("Failed to create DataFrame: {}", e)))?;
+            return Ok(());
+        }
+        
+        // Convert values to a single-row DataFrame matching existing column types
+        let mut new_columns: Vec<Column> = Vec::new();
+        
+        for ((col_name, value), dtype) in col_names.iter().zip(values.iter()).zip(existing_dtypes.iter()) {
+            let series = value_to_series_with_dtype(col_name, value, dtype)?;
+            new_columns.push(series.into());
+        }
+        
+        let new_df = DataFrame::new(new_columns)
+            .map_err(|e| crate::Error::InvalidFormat(format!("Failed to create row: {}", e)))?;
+        
+        self.df = self.df.vstack(&new_df)
+            .map_err(|e| crate::Error::InvalidFormat(format!("Failed to add row: {}", e)))?;
+        
+        Ok(())
+    }
+
+    /// Get a value by row index and column index
+    /// Returns DataValue (owned) since values are extracted from DataFrame
+    pub fn get(&self, row_idx: usize, col_idx: usize) -> Option<DataValue> {
+        let col_names = self.df.get_column_names();
+        let col_name = col_names.get(col_idx)?;
+        self.get_by_name(row_idx, col_name.as_str())
+    }
+
+    /// Get a value by row index and column name
+    pub fn get_by_name(&self, row_idx: usize, col_name: &str) -> Option<DataValue> {
+        let col = self.df.column(col_name).ok()?;
+        let dtype = col.dtype();
+        
+        // Check bounds
+        if row_idx >= col.len() {
+            return None;
+        }
+        
+        match dtype {
+            DataType::Float64 => {
+                let ca = col.f64().ok()?;
+                // In Polars 0.45, get() returns Option<T> where None means null
+                match ca.get(row_idx) {
+                    Some(val) => Some(DataValue::Float(val)),
+                    None => Some(DataValue::Null),
+                }
+            }
+            DataType::Int64 => {
+                let ca = col.i64().ok()?;
+                match ca.get(row_idx) {
+                    Some(val) => Some(DataValue::Integer(val)),
+                    None => Some(DataValue::Null),
+                }
+            }
+            DataType::String => {
+                let ca = col.str().ok()?;
+                match ca.get(row_idx) {
+                    Some(val) => Some(DataValue::String(val.into())),
+                    None => Some(DataValue::Null),
+                }
+            }
+            _ => {
+                // Fallback: try to convert to string
+                match col.get(row_idx) {
+                    Ok(any_val) => {
+                        if any_val.is_null() {
+                            Some(DataValue::Null)
+                        } else {
+                            Some(DataValue::String(any_val.to_string().into()))
+                        }
+                    }
+                    Err(_) => Some(DataValue::Null),
+                }
+            }
+        }
+    }
+
+    /// Get a f64 value by row index and column name
+    /// Auto-converts Integer to Float if needed
+    #[inline]
+    pub fn get_f64(&self, row_idx: usize, col_name: &str) -> Option<f64> {
+        self.get_by_name(row_idx, col_name)?.as_float()
+    }
+
+    /// Get a f64 value by row index and column name, with a default if not found
+    #[inline]
+    pub fn get_f64_or(&self, row_idx: usize, col_name: &str, default: f64) -> f64 {
+        self.get_f64(row_idx, col_name).unwrap_or(default)
+    }
+
+    /// Get an i64 value by row index and column name
+    /// Auto-converts Float to Integer if the value is a whole number
+    #[inline]
+    pub fn get_i64(&self, row_idx: usize, col_name: &str) -> Option<i64> {
+        self.get_by_name(row_idx, col_name)?.as_integer()
+    }
+
+    /// Get an i64 value by row index and column name, with a default if not found
+    #[inline]
+    pub fn get_i64_or(&self, row_idx: usize, col_name: &str, default: i64) -> i64 {
+        self.get_i64(row_idx, col_name).unwrap_or(default)
+    }
+
+    /// Get a string value by row index and column name
+    /// Returns the string representation of any value type
+    #[inline]
+    pub fn get_string(&self, row_idx: usize, col_name: &str) -> Option<String> {
+        match self.get_by_name(row_idx, col_name)? {
+            DataValue::String(s) => Some(s.to_string()),
+            DataValue::Integer(i) => Some(i.to_string()),
+            DataValue::Float(f) => Some(f.to_string()),
+            DataValue::Null => None,
+        }
+    }
+
+    /// Get a string value by row index and column name, with a default if not found
+    #[inline]
+    pub fn get_string_or(&self, row_idx: usize, col_name: &str, default: &str) -> String {
+        self.get_string(row_idx, col_name).unwrap_or_else(|| default.to_string())
+    }
+
+    /// Set a value by row and column index
+    pub fn set(&mut self, row_idx: usize, col_idx: usize, value: DataValue) -> Result<(), crate::Error> {
+        let col_name = self.df.get_column_names()
+            .get(col_idx)
+            .map(|s| s.as_str().to_string())
+            .ok_or_else(|| crate::Error::InvalidFormat(format!("Column index {} out of bounds", col_idx)))?;
+        self.set_by_name(row_idx, &col_name, value)
+    }
+
+    /// Set a value by row index and column name
+    pub fn set_by_name(&mut self, row_idx: usize, col_name: &str, value: DataValue) -> Result<(), crate::Error> {
+        // Get the column and modify it
+        let col_idx = self.df.get_column_names().iter().position(|&c| c.as_str() == col_name)
+            .ok_or_else(|| crate::Error::InvalidFormat(format!("Column '{}' not found", col_name)))?;
+        
+        // Note: Polars DataFrame doesn't support direct cell replacement easily
+        // This is a simplified implementation that replaces the entire column
+        // For better performance, consider using Series operations instead
+        let col_name_str: String = self.df.get_column_names()[col_idx].as_str().to_string();
+        let column = self.df.column(&col_name_str)
+            .map_err(|e| crate::Error::InvalidFormat(format!("Failed to get column: {}", e)))?;
+        
+        let new_series = data_values_to_series_with_replacement(column, row_idx, value)?;
+        self.df.replace(&col_name_str, new_series)
+            .map_err(|e| crate::Error::InvalidFormat(format!("Failed to set value: {}", e)))?;
+        Ok(())
+    }
+
+    /// Check if block is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.df.is_empty()
+    }
+
+    /// Get a full column as a vector of DataValues (Read)
+    pub fn get_column(&self, col_name: &str) -> Option<Vec<DataValue>> {
+        let col = self.df.column(col_name).ok()?;
+        let dtype = col.dtype();
+        
+        match dtype {
+            DataType::Float64 => {
+                let ca = col.f64().ok()?;
+                Some(ca.into_iter().map(|opt| match opt {
+                    Some(v) => DataValue::Float(v),
+                    None => DataValue::Null,
+                }).collect())
+            }
+            DataType::Int64 => {
+                let ca = col.i64().ok()?;
+                Some(ca.into_iter().map(|opt| match opt {
+                    Some(v) => DataValue::Integer(v),
+                    None => DataValue::Null,
+                }).collect())
+            }
+            DataType::String => {
+                let ca = col.str().ok()?;
+                Some(ca.into_iter().map(|opt| match opt {
+                    Some(v) => DataValue::String(v.into()),
+                    None => DataValue::Null,
+                }).collect())
+            }
+            _ => {
+                // Fallback
+                Some((0..col.len())
+                    .map(|i| col.get(i).ok().map(|av| {
+                        if av.is_null() {
+                            DataValue::Null
+                        } else {
+                            DataValue::String(av.to_string().into())
+                        }
+                    }).unwrap_or(DataValue::Null))
+                    .collect())
+            }
+        }
+    }
+
+    /// Update an entire row (Update)
+    pub fn update_row(&mut self, row_idx: usize, values: Vec<DataValue>) -> crate::Result<()> {
+        // Check bounds
+        if row_idx >= self.row_count() {
+            return Err(crate::Error::InvalidFormat(
+                format!("Row index {} out of bounds (total rows: {})", row_idx, self.row_count())
+            ));
+        }
+        
+        // Check column count
+        if values.len() != self.column_count() {
+            return Err(crate::Error::InvalidFormat(
+                format!("Expected {} columns, got {}", self.column_count(), values.len())
+            ));
+        }
+        
+        // Update each value in the row
+        let col_names = self.columns();
+        for (col_name, value) in col_names.iter().zip(values.iter()) {
+            self.set_by_name(row_idx, col_name, value.clone())?;
+        }
+        
+        Ok(())
+    }
+
+    /// Remove a row by index (Delete)
+    pub fn remove_row(&mut self, row_idx: usize) -> crate::Result<()> {
+        // Check bounds
+        if row_idx >= self.row_count() {
+            return Err(crate::Error::InvalidFormat(
+                format!("Row index {} out of bounds (total rows: {})", row_idx, self.row_count())
+            ));
+        }
+        
+        // Create mask to filter out the row
+        let mask: Vec<bool> = (0..self.row_count())
+            .map(|i| i != row_idx)
+            .collect();
+        
+        let filter_series = Series::new("filter".into(), mask);
+        let mask_bool = filter_series.bool().map_err(|e| 
+            crate::Error::InvalidFormat(format!("Failed to create filter: {}", e))
+        )?;
+        self.df = self.df.filter(mask_bool).map_err(|e| 
+            crate::Error::InvalidFormat(format!("Failed to remove row: {}", e))
+        )?;
+        
+        Ok(())
+    }
+
+    /// Remove a column by name (Delete)
+    pub fn remove_column(&mut self, col_name: &str) -> crate::Result<()> {
+        self.df.drop_in_place(col_name).map_err(|e| 
+            crate::Error::InvalidFormat(format!("Failed to remove column '{}': {}", col_name, e))
+        )?;
+        Ok(())
+    }
+
+    /// Clear all rows but keep columns (Delete all rows)
+    pub fn clear_rows(&mut self) {
+        let col_names = self.columns();
+        let empty_columns: Vec<Column> = col_names.iter()
+            .map(|name| Series::new(name.as_str().into(), Vec::<String>::new()).into())
+            .collect();
+        self.df = DataFrame::new(empty_columns).unwrap_or_else(|_| DataFrame::empty());
+    }
+
+    /// Clear all data including columns (Delete all)
+    pub fn clear(&mut self) {
+        self.df = DataFrame::empty();
+    }
+
+    /// Check if a column exists
+    #[inline]
+    pub fn has_column(&self, col_name: &str) -> bool {
+        self.df.get_column_names().iter().any(|&c| c.as_str() == col_name)
+    }
+
+    /// Iterate over rows, returning Vec<DataValue> for each row
+    pub fn iter_rows(&self) -> impl Iterator<Item = Vec<DataValue>> + '_ {
+        let nrows = self.row_count();
+        let col_names = self.columns();
+        (0..nrows).map(move |row_idx| {
+            col_names.iter()
+                .map(|col_name| self.get_by_name(row_idx, col_name).unwrap_or(DataValue::Null))
+                .collect()
+        })
+    }
+
+    /// Iterate over a column's values as f64
+    /// Returns an iterator that yields Some(f64) for numeric values or None for nulls
+    pub fn column_iter_f64(&self, col_name: &str) -> Option<impl Iterator<Item = Option<f64>> + '_> {
+        let col = self.df.column(col_name).ok()?;
+        let ca = col.f64().ok()?;
+        Some(ca.into_iter())
+    }
+
+    /// Iterate over a column's values as i64
+    /// Returns an iterator that yields Some(i64) for integer values or None for nulls
+    pub fn column_iter_i64(&self, col_name: &str) -> Option<impl Iterator<Item = Option<i64>> + '_> {
+        let col = self.df.column(col_name).ok()?;
+        let ca = col.i64().ok()?;
+        Some(ca.into_iter())
+    }
+
+    /// Iterate over a column's values as strings
+    /// Returns an iterator that yields Some(&str) for string values or None for nulls
+    pub fn column_iter_str(&self, col_name: &str) -> Option<impl Iterator<Item = Option<&str>> + '_> {
+        let col = self.df.column(col_name).ok()?;
+        let ca = col.str().ok()?;
+        Some(ca.into_iter())
+    }
+
+    /// Iterate over all rows with their indices
+    pub fn enumerate_rows(&self) -> impl Iterator<Item = (usize, Vec<DataValue>)> + '_ {
+        let nrows = self.row_count();
+        let col_names = self.columns();
+        (0..nrows).map(move |row_idx| {
+            let row: Vec<DataValue> = col_names.iter()
+                .map(|col_name| self.get_by_name(row_idx, col_name).unwrap_or(DataValue::Null))
+                .collect();
+            (row_idx, row)
+        })
+    }
+
+    /// Convert LoopBlock to HashMap of column vectors for backward compatibility
+    pub fn to_legacy(&self) -> Result<(Vec<SmartString>, Vec<Vec<DataValue>>), crate::Error> {
+        let mut columns = Vec::new();
+        let mut data = Vec::new();
+        
+        let nrows = self.row_count();
+        
+        for col_name in self.df.get_column_names() {
+            columns.push(col_name.as_str().into());
+        }
+        
+        for row_idx in 0..nrows {
+            let mut row = Vec::new();
+            for col_name in self.df.get_column_names() {
+                row.push(self.get_by_name(row_idx, col_name).unwrap_or(DataValue::Null));
+            }
+            data.push(row);
+        }
+        
+        Ok((columns, data))
+    }
+}
+
+impl Default for LoopBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Builder for constructing LoopBlock with a fluent API
+///
+/// # Example
+/// ```
+/// use emstar::{LoopBlock, DataValue};
+///
+/// let block = LoopBlock::builder()
+///     .columns(&["rlnCoordinateX", "rlnCoordinateY"])
+///     .rows(&[
+///         vec![DataValue::Float(100.0), DataValue::Float(200.0)],
+///         vec![DataValue::Float(150.0), DataValue::Float(250.0)],
+///     ])
+///     .build()
+///     .unwrap();
+/// ```
+#[derive(Debug)]
+pub struct LoopBlockBuilder {
+    columns: Vec<String>,
+    rows: Vec<Vec<DataValue>>,
+}
+
+impl LoopBlockBuilder {
+    /// Create a new builder
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            columns: Vec::new(),
+            rows: Vec::new(),
+        }
+    }
+
+    /// Set the column names
+    ///
+    /// # Example
+    /// ```
+    /// use emstar::LoopBlock;
+    ///
+    /// let block = LoopBlock::builder()
+    ///     .columns(&["col1", "col2", "col3"])
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(block.column_count(), 3);
+    /// ```
+    pub fn columns(mut self, columns: &[&str]) -> Self {
+        self.columns = columns.iter().map(|&s| s.to_string()).collect();
+        self
+    }
+
+    /// Add a single column
+    ///
+    /// # Example
+    /// ```
+    /// use emstar::LoopBlock;
+    ///
+    /// let block = LoopBlock::builder()
+    ///     .column("col1")
+    ///     .column("col2")
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(block.column_count(), 2);
+    /// ```
+    pub fn column(mut self, name: &str) -> Self {
+        self.columns.push(name.to_string());
+        self
+    }
+
+    /// Set all rows at once
+    ///
+    /// # Example
+    /// ```
+    /// use emstar::{LoopBlock, DataValue};
+    ///
+    /// let block = LoopBlock::builder()
+    ///     .columns(&["col1", "col2"])
+    ///     .rows(&[
+    ///         vec![DataValue::Float(1.0), DataValue::Float(2.0)],
+    ///         vec![DataValue::Float(3.0), DataValue::Float(4.0)],
+    ///     ])
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(block.row_count(), 2);
+    /// ```
+    pub fn rows(mut self, rows: &[Vec<DataValue>]) -> Self {
+        self.rows = rows.to_vec();
+        self
+    }
+
+    /// Add a single row
+    ///
+    /// # Example
+    /// ```
+    /// use emstar::{LoopBlock, DataValue};
+    ///
+    /// let block = LoopBlock::builder()
+    ///     .columns(&["col1", "col2"])
+    ///     .row(vec![DataValue::Float(1.0), DataValue::Float(2.0)])
+    ///     .row(vec![DataValue::Float(3.0), DataValue::Float(4.0)])
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(block.row_count(), 2);
+    /// ```
+    pub fn row(mut self, row: Vec<DataValue>) -> Self {
+        self.rows.push(row);
+        self
+    }
+
+    /// Build the LoopBlock
+    ///
+    /// Returns an error if the row data doesn't match the column count.
+    pub fn build(self) -> crate::Result<LoopBlock> {
+        let mut block = LoopBlock::new();
+
+        // Add columns if specified
+        for col in &self.columns {
+            block.add_column(col);
+        }
+
+        // Add rows
+        for row in &self.rows {
+            block.add_row(row.clone())?;
+        }
+
+        Ok(block)
+    }
+}
+
+impl Default for LoopBlockBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PartialEq for LoopBlock {
+    fn eq(&self, other: &Self) -> bool {
+        // Compare DataFrames by checking if they're equal
+        // This is a simplified comparison - proper DataFrame comparison would be more complex
+        self.columns() == other.columns() && self.row_count() == other.row_count()
+    }
+}
+
+/// Statistics for a LoopBlock
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct LoopBlockStats {
+    /// Number of rows
+    pub n_rows: usize,
+    /// Number of columns
+    pub n_cols: usize,
+    /// Total number of cells (rows * columns)
+    pub n_cells: usize,
+}
+
+impl LoopBlock {
+    /// Get statistics for this loop block
+    #[inline]
+    pub fn stats(&self) -> LoopBlockStats {
+        let n_rows = self.row_count();
+        let n_cols = self.column_count();
+        LoopBlockStats {
+            n_rows,
+            n_cols,
+            n_cells: n_rows * n_cols,
+        }
+    }
+}
+
+/// Statistics for a SimpleBlock
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SimpleBlockStats {
+    /// Number of key-value pairs
+    pub n_entries: usize,
+}
+
+impl SimpleBlock {
+    /// Get statistics for this simple block
+    #[inline]
+    pub fn stats(&self) -> SimpleBlockStats {
+        SimpleBlockStats {
+            n_entries: self.len(),
+        }
+    }
+}
+
+/// Statistics for a DataBlock (either Simple or Loop)
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DataBlockStats {
+    /// Statistics for a simple block
+    Simple(SimpleBlockStats),
+    /// Statistics for a loop block
+    Loop(LoopBlockStats),
+}
+
+/// Comprehensive statistics for a STAR file
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct StarStats {
+    /// Total number of data blocks
+    pub n_blocks: usize,
+    /// Number of SimpleBlock data blocks
+    pub n_simple_blocks: usize,
+    /// Number of LoopBlock data blocks
+    pub n_loop_blocks: usize,
+    /// Total number of rows across all LoopBlocks
+    pub total_loop_rows: usize,
+    /// Total number of columns across all LoopBlocks (sum of each block's columns)
+    pub total_loop_cols: usize,
+    /// Total number of entries across all SimpleBlocks
+    pub total_simple_entries: usize,
+    /// Statistics per block (block name -> stats)
+    pub block_stats: Vec<(String, DataBlockStats)>,
+}
+
+impl StarStats {
+    /// Create a new StarStats from a HashMap of data blocks
+    pub fn from_blocks(blocks: &HashMap<String, DataBlock>) -> Self {
+        let mut n_simple_blocks = 0;
+        let mut n_loop_blocks = 0;
+        let mut total_loop_rows = 0;
+        let mut total_loop_cols = 0;
+        let mut total_simple_entries = 0;
+        let mut block_stats = Vec::new();
+
+        for (name, block) in blocks {
+            let stats = block.stats();
+            match &stats {
+                DataBlockStats::Simple(s) => {
+                    n_simple_blocks += 1;
+                    total_simple_entries += s.n_entries;
+                }
+                DataBlockStats::Loop(l) => {
+                    n_loop_blocks += 1;
+                    total_loop_rows += l.n_rows;
+                    total_loop_cols += l.n_cols;
+                }
+            }
+            block_stats.push((name.clone(), stats));
+        }
+
+        // Sort block stats by name for consistent output
+        block_stats.sort_by(|a, b| a.0.cmp(&b.0));
+
+        StarStats {
+            n_blocks: blocks.len(),
+            n_simple_blocks,
+            n_loop_blocks,
+            total_loop_rows,
+            total_loop_cols,
+            total_simple_entries,
+            block_stats,
+        }
+    }
+
+    /// Get statistics for a specific block by name
+    #[inline]
+    pub fn get_block_stats(&self, name: &str) -> Option<DataBlockStats> {
+        self.block_stats
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, stats)| *stats)
+    }
+
+    /// Returns true if the file contains any LoopBlocks
+    #[inline]
+    pub fn has_loop_blocks(&self) -> bool {
+        self.n_loop_blocks > 0
+    }
+
+    /// Returns true if the file contains any SimpleBlocks
+    #[inline]
+    pub fn has_simple_blocks(&self) -> bool {
+        self.n_simple_blocks > 0
+    }
+
+    /// Get the average number of columns per LoopBlock
+    #[inline]
+    pub fn avg_cols_per_loop(&self) -> f64 {
+        if self.n_loop_blocks == 0 {
+            0.0
+        } else {
+            self.total_loop_cols as f64 / self.n_loop_blocks as f64
+        }
+    }
+
+    /// Get the average number of rows per LoopBlock
+    #[inline]
+    pub fn avg_rows_per_loop(&self) -> f64 {
+        if self.n_loop_blocks == 0 {
+            0.0
+        } else {
+            self.total_loop_rows as f64 / self.n_loop_blocks as f64
+        }
+    }
+}
+
+impl DataBlock {
+    /// Get the name of the block type
+    #[inline]
+    pub fn block_type(&self) -> &'static str {
+        match self {
+            DataBlock::Simple(_) => "SimpleBlock",
+            DataBlock::Loop(_) => "LoopBlock",
+        }
+    }
+
+    /// Check if this is a simple block
+    #[inline]
+    pub fn is_simple(&self) -> bool {
+        matches!(self, DataBlock::Simple(_))
+    }
+
+    /// Check if this is a loop block
+    #[inline]
+    pub fn is_loop(&self) -> bool {
+        matches!(self, DataBlock::Loop(_))
+    }
+
+    /// Get as simple block if applicable
+    #[inline]
+    pub fn as_simple(&self) -> Option<&SimpleBlock> {
+        match self {
+            DataBlock::Simple(block) => Some(block),
+            _ => None,
+        }
+    }
+
+    /// Get as loop block if applicable
+    #[inline]
+    pub fn as_loop(&self) -> Option<&LoopBlock> {
+        match self {
+            DataBlock::Loop(block) => Some(block),
+            _ => None,
+        }
+    }
+
+    /// Get mutable reference to simple block if applicable
+    #[inline]
+    pub fn as_simple_mut(&mut self) -> Option<&mut SimpleBlock> {
+        match self {
+            DataBlock::Simple(block) => Some(block),
+            _ => None,
+        }
+    }
+
+    /// Get mutable reference to loop block if applicable
+    #[inline]
+    pub fn as_loop_mut(&mut self) -> Option<&mut LoopBlock> {
+        match self {
+            DataBlock::Loop(block) => Some(block),
+            _ => None,
+        }
+    }
+
+    /// Get a reference to the SimpleBlock, panicking with the given message if not a SimpleBlock
+    #[inline]
+    pub fn expect_simple(&self, msg: &str) -> &SimpleBlock {
+        match self {
+            DataBlock::Simple(block) => block,
+            _ => panic!("{}", msg),
+        }
+    }
+
+    /// Get a reference to the LoopBlock, panicking with the given message if not a LoopBlock
+    #[inline]
+    pub fn expect_loop(&self, msg: &str) -> &LoopBlock {
+        match self {
+            DataBlock::Loop(block) => block,
+            _ => panic!("{}", msg),
+        }
+    }
+
+    /// Get a mutable reference to the SimpleBlock, panicking with the given message if not a SimpleBlock
+    #[inline]
+    pub fn expect_simple_mut(&mut self, msg: &str) -> &mut SimpleBlock {
+        match self {
+            DataBlock::Simple(block) => block,
+            _ => panic!("{}", msg),
+        }
+    }
+
+    /// Get a mutable reference to the LoopBlock, panicking with the given message if not a LoopBlock
+    #[inline]
+    pub fn expect_loop_mut(&mut self, msg: &str) -> &mut LoopBlock {
+        match self {
+            DataBlock::Loop(block) => block,
+            _ => panic!("{}", msg),
+        }
+    }
+
+    /// Get statistics for this data block
+    #[inline]
+    pub fn stats(&self) -> DataBlockStats {
+        match self {
+            DataBlock::Simple(block) => DataBlockStats::Simple(block.stats()),
+            DataBlock::Loop(block) => DataBlockStats::Loop(block.stats()),
+        }
+    }
+
+    /// Get the number of rows (for LoopBlock) or entries (for SimpleBlock)
+    #[inline]
+    pub fn count(&self) -> usize {
+        match self {
+            DataBlock::Simple(block) => block.len(),
+            DataBlock::Loop(block) => block.row_count(),
+        }
+    }
+}
+
+/// Helper function to create a new series with a single value replaced
+fn data_values_to_series_with_replacement(column: &Column, row_idx: usize, new_value: DataValue) -> Result<Series, crate::Error> {
+    // Convert to Series for processing
+    let series = column.as_series().ok_or_else(|| crate::Error::InvalidFormat("Failed to get series from column".to_string()))?;
+    let series = series.clone();
+    // Convert series to Vec<AnyValue> for modification
+    let dtype = series.dtype();
+    let name = series.name().to_string();
+    
+    match dtype {
+        DataType::Float64 => {
+            let ca = series.f64().map_err(|e| crate::Error::InvalidFormat(format!("Failed to get float values: {}", e)))?;
+            let mut values: Vec<Option<f64>> = ca.into_iter().collect();
+            if row_idx < values.len() {
+                values[row_idx] = match new_value {
+                    DataValue::Float(f) => Some(f),
+                    DataValue::Integer(i) => Some(i as f64),
+                    DataValue::Null => None,
+                    _ => None,
+                };
+            }
+            Ok(Series::new(name.into(), values))
+        }
+        DataType::Int64 => {
+            let ca = series.i64().map_err(|e| crate::Error::InvalidFormat(format!("Failed to get int values: {}", e)))?;
+            let mut values: Vec<Option<i64>> = ca.into_iter().collect();
+            if row_idx < values.len() {
+                values[row_idx] = match new_value {
+                    DataValue::Integer(i) => Some(i),
+                    DataValue::Float(f) if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 => Some(f as i64),
+                    DataValue::Null => None,
+                    _ => None,
+                };
+            }
+            Ok(Series::new(name.into(), values))
+        }
+        DataType::String => {
+            let ca = series.str().map_err(|e| crate::Error::InvalidFormat(format!("Failed to get string values: {}", e)))?;
+            let mut values: Vec<Option<String>> = ca.into_iter().map(|s| s.map(|s| s.to_string())).collect();
+            if row_idx < values.len() {
+                values[row_idx] = match new_value {
+                    DataValue::String(s) => Some(s.as_str().to_string()),
+                    DataValue::Integer(i) => Some(i.to_string()),
+                    DataValue::Float(f) => Some(f.to_string()),
+                    DataValue::Null => None,
+                };
+            }
+            Ok(Series::new(name.into(), values))
+        }
+        _ => {
+            // Fallback: convert to string series
+            let mut values: Vec<Option<String>> = (0..series.len())
+                .map(|i| series.get(i).ok().map(|av| av.to_string()))
+                .collect();
+            if row_idx < values.len() {
+                values[row_idx] = Some(new_value.as_string().unwrap_or("<NA>").to_string());
+            }
+            Ok(Series::new(name.into(), values))
+        }
+    }
+}
+
+/// Helper function to convert a single DataValue to a one-element Series
+fn single_value_to_series(name: &str, value: &DataValue) -> Result<Series, crate::Error> {
+    let series = match value {
+        DataValue::Integer(i) => Series::new(name.into(), vec![*i]),
+        DataValue::Float(f) => Series::new(name.into(), vec![*f]),
+        DataValue::String(s) => Series::new(name.into(), vec![s.as_str()]),
+        DataValue::Null => {
+            // Create a null string series by default
+            let nulls: Vec<Option<String>> = vec![None];
+            Series::new(name.into(), nulls)
+        }
+    };
+    Ok(series)
+}
+
+/// Helper function to convert a DataValue to a Series with a specific dtype
+fn value_to_series_with_dtype(name: &str, value: &DataValue, dtype: &DataType) -> Result<Series, crate::Error> {
+    let series = match dtype {
+        DataType::Float64 => {
+            let val: Option<f64> = match value {
+                DataValue::Float(f) => Some(*f),
+                DataValue::Integer(i) => Some(*i as f64),
+                DataValue::Null => None,
+                DataValue::String(s) => s.parse::<f64>().ok(),
+            };
+            Series::new(name.into(), vec![val])
+        }
+        DataType::Int64 => {
+            let val: Option<i64> = match value {
+                DataValue::Integer(i) => Some(*i),
+                DataValue::Float(f) => Some(*f as i64),
+                DataValue::Null => None,
+                DataValue::String(s) => s.parse::<i64>().ok(),
+            };
+            Series::new(name.into(), vec![val])
+        }
+        DataType::String => {
+            let val: Option<String> = match value {
+                DataValue::String(s) => Some(s.to_string()),
+                DataValue::Integer(i) => Some(i.to_string()),
+                DataValue::Float(f) => Some(f.to_string()),
+                DataValue::Null => None,
+            };
+            Series::new(name.into(), vec![val])
+        }
+        _ => {
+            // Fallback to string
+            let val: Option<String> = match value {
+                DataValue::String(s) => Some(s.to_string()),
+                DataValue::Integer(i) => Some(i.to_string()),
+                DataValue::Float(f) => Some(f.to_string()),
+                DataValue::Null => None,
+            };
+            Series::new(name.into(), vec![val])
+        }
+    };
+    Ok(series)
+}
+
+/// Represents a data block in a STAR file
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DataBlock {
+    /// Simple block with key-value pairs
+    Simple(SimpleBlock),
+    /// Loop block with tabular data
+    Loop(LoopBlock),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_value_conversions() {
+        let int_val = DataValue::Integer(42);
+        assert_eq!(int_val.as_integer(), Some(42));
+        assert_eq!(int_val.as_float(), Some(42.0));
+
+        let float_val = DataValue::Float(3.14);
+        assert_eq!(float_val.as_float(), Some(3.14));
+        assert_eq!(float_val.as_integer(), None);
+
+        let string_val = DataValue::String("hello".into());
+        assert_eq!(string_val.as_string(), Some("hello"));
+        assert_eq!(string_val.as_integer(), None);
+        assert_eq!(string_val.as_float(), None);
+    }
+
+    #[test]
+    fn test_loop_block() {
+        // Create DataFrame with test data
+        let s1 = Series::new("col1".into(), &[1i64]);
+        let s2 = Series::new("col2".into(), &[2i64]);
+        let df = DataFrame::new(vec![s1.into(), s2.into()]).unwrap();
+        let block = LoopBlock::from_dataframe(df);
+
+        assert_eq!(block.column_count(), 2);
+        assert_eq!(block.row_count(), 1);
+        assert_eq!(block.get_by_name(0, "col1"), Some(DataValue::Integer(1)));
+        assert_eq!(block.get_by_name(0, "col2"), Some(DataValue::Integer(2)));
+    }
+}
