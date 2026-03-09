@@ -480,6 +480,23 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | `column_count()` | Get number of columns |
 | `stats()` | Get block statistics |
 | `builder()` | Create a LoopBlockBuilder (fluent API) |
+| `as_dataframe()` | Access underlying Polars DataFrame |
+
+### DataBlock Methods
+
+| Method | Description |
+|--------|-------------|
+| `is_simple()` | Check if block is a SimpleBlock |
+| `is_loop()` | Check if block is a LoopBlock |
+| `as_simple()` | Get SimpleBlock reference (returns Option) |
+| `as_loop()` | Get LoopBlock reference (returns Option) |
+| `as_simple_mut()` | Get mutable SimpleBlock reference |
+| `as_loop_mut()` | Get mutable LoopBlock reference |
+| `expect_simple(msg)` | Get SimpleBlock or panic with message |
+| `expect_loop(msg)` | Get LoopBlock or panic with message |
+| `block_type()` | Get type name as string |
+| `count()` | Get entry count (Simple) or row count (Loop) |
+| `stats()` | Get block statistics |
 
 ### Statistics Types
 
@@ -489,6 +506,19 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | `DataBlockStats` | Block-level statistics (enum) |
 | `LoopBlockStats` | LoopBlock statistics (rows, cols, cells) |
 | `SimpleBlockStats` | SimpleBlock statistics (entries) |
+
+### DataValue Methods
+
+| Method | Description |
+|--------|-------------|
+| `as_integer()` | Convert to i64 (returns Option) |
+| `as_float()` | Convert to f64 (returns Option) |
+| `as_string()` | Convert to &str (returns Option) |
+| `as_bool()` | Convert to bool (returns Option) |
+| `is_null()` | Check if value is Null |
+| `is_nan()` | Check if Float is NaN |
+| `is_infinite()` | Check if Float is infinite |
+| `type_name()` | Get type name as string |
 
 ## Examples
 
