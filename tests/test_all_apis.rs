@@ -1,7 +1,7 @@
 //! Comprehensive API tests on real STAR files from tests/data
 
 use emstar::{
-    block_stats, list_blocks, read, write, stats,
+    list_blocks, read, write, stats,
     DataBlock, DataBlockStats, DataValue, LoopBlock, SimpleBlock, StarStats,
 };
 use std::path::Path;
@@ -101,7 +101,7 @@ fn test_stats_api_on_all_files() {
         println!("    - LoopBlocks: {}", file_stats.n_loop_blocks);
         println!("    - Total rows: {}", file_stats.total_loop_rows);
         println!("    - Total cols: {}", file_stats.total_loop_cols);
-        println!("    - Avg rows/loop: {:.1}", file_stats.avg_rows_per_loop());
+        // Avg rows/loop can be computed as: total_loop_rows / n_loop_blocks
         println!("    - Has loop blocks: {}", file_stats.has_loop_blocks());
         println!("    - Has simple blocks: {}", file_stats.has_simple_blocks());
         
@@ -111,9 +111,9 @@ fn test_stats_api_on_all_files() {
             assert!(block_stat.is_some());
         }
         
-        // Compare with block_stats() on loaded data
+        // Compare with StarStats::from_blocks() on loaded data
         let data = read(&path, None).unwrap();
-        let mem_stats = block_stats(&data);
+        let mem_stats = StarStats::from_blocks(&data);
         assert_eq!(file_stats.n_blocks, mem_stats.n_blocks);
         assert_eq!(file_stats.total_loop_rows, mem_stats.total_loop_rows);
     }
@@ -203,10 +203,10 @@ fn test_loop_block_crud() {
         let cols = block.columns();
         println!("    columns(): {:?}", cols);
         
-        // Test has_column()
+        // Test columns().contains()
         if let Some(first_col) = cols.first() {
-            assert!(block.has_column(first_col));
-            println!("    has_column('{}'): true", first_col);
+            assert!(block.columns().contains(&first_col));
+            println!("    columns().contains('{}'): true", first_col);
             
             // Test get_column()
             let col_data = block.get_column(first_col);
@@ -245,7 +245,7 @@ fn test_loop_block_crud() {
         // Test add_column()
         let new_col_name = "test_new_column";
         block.add_column(new_col_name.into());
-        assert!(block.has_column(new_col_name));
+        assert!(block.columns().contains(&new_col_name));
         assert_eq!(block.column_count(), original_cols + 1);
         println!("    add_column('{}'): now {} cols", new_col_name, block.column_count());
         
@@ -270,7 +270,7 @@ fn test_loop_block_crud() {
         
         // Test remove_column()
         block.remove_column(new_col_name).expect("Failed to remove column");
-        assert!(!block.has_column(new_col_name));
+        assert!(!block.columns().contains(&new_col_name));
         assert_eq!(block.column_count(), original_cols);
         println!("    remove_column('{}'): back to {} cols", new_col_name, block.column_count());
         
@@ -355,14 +355,14 @@ fn test_write_read_roundtrip() {
         
         // Read original
         let original = read(&source, None).unwrap();
-        let original_stats = block_stats(&original);
+        let original_stats = StarStats::from_blocks(&original);
         
         // Write to temp
         write(&original, &temp, None).expect("Failed to write");
         
         // Read back
         let reloaded = read(&temp, None).unwrap();
-        let reloaded_stats = block_stats(&reloaded);
+        let reloaded_stats = StarStats::from_blocks(&reloaded);
         
         // Compare stats
         assert_eq!(original_stats.n_blocks, reloaded_stats.n_blocks, 
@@ -437,7 +437,7 @@ fn test_complex_file() {
     let data = read(&path, None).unwrap();
     println!("  Loaded {} data blocks", data.len());
     
-    let stats = block_stats(&data);
+    let stats = StarStats::from_blocks(&data);
     println!("  Statistics:");
     println!("    - Blocks: {} ({} simple, {} loop)", 
              stats.n_blocks, stats.n_simple_blocks, stats.n_loop_blocks);
@@ -630,57 +630,17 @@ fn test_datablock_expect_mut_methods() {
     let mut simple_db = DataBlock::Simple(simple_block);
     let mut loop_db = DataBlock::Loop(loop_block);
     
-    // Test expect_simple_mut - should work and allow modification
+    // Test as_simple_mut() - should work and allow modification
     {
-        let simple = simple_db.expect_simple_mut("Should be simple");
+        let simple = simple_db.as_simple_mut().expect("Should be simple");
         simple.set("new_key", DataValue::String("value".into()));
     }
     
-    // Test expect_loop_mut - should work and allow modification
+    // Test as_loop_mut() - should work and allow modification
     {
-        let loop_b = loop_db.expect_loop_mut("Should be loop");
+        let loop_b = loop_db.as_loop_mut().expect("Should be loop");
         loop_b.add_row(vec![DataValue::Integer(2)]).unwrap();
     }
-    
-    // Test expect_simple_mut on loop should panic
-    let result = std::panic::catch_unwind(|| {
-        let mut loop_db = DataBlock::Loop(LoopBlock::new());
-        let _ = loop_db.expect_simple_mut("This should panic");
-    });
-    assert!(result.is_err());
-    
-    // Test expect_loop_mut on simple should panic
-    let result = std::panic::catch_unwind(|| {
-        let mut simple_db = DataBlock::Simple(SimpleBlock::new());
-        let _ = simple_db.expect_loop_mut("This should panic");
-    });
-    assert!(result.is_err());
-}
-
-/// Test LoopBlock update_row
-#[test]
-fn test_loopblock_update_row() {
-    let mut block = LoopBlock::new();
-    block.add_column("col1");
-    block.add_column("col2");
-    block.add_row(vec![DataValue::Integer(1), DataValue::Integer(2)]).unwrap();
-    block.add_row(vec![DataValue::Integer(3), DataValue::Integer(4)]).unwrap();
-    
-    // Update row 0
-    block.update_row(0, vec![DataValue::Integer(10), DataValue::Integer(20)]).unwrap();
-    
-    assert_eq!(block.get_by_name(0, "col1"), Some(DataValue::Integer(10)));
-    assert_eq!(block.get_by_name(0, "col2"), Some(DataValue::Integer(20)));
-    
-    // Verify row 1 unchanged
-    assert_eq!(block.get_by_name(1, "col1"), Some(DataValue::Integer(3)));
-    assert_eq!(block.get_by_name(1, "col2"), Some(DataValue::Integer(4)));
-    
-    // Test out of bounds
-    assert!(block.update_row(99, vec![DataValue::Integer(1)]).is_err());
-    
-    // Test wrong column count
-    assert!(block.update_row(0, vec![DataValue::Integer(1)]).is_err());
 }
 
 /// Test LoopBlock clear_rows and clear
@@ -739,7 +699,7 @@ fn test_loopblock_enumerate_rows() {
     block.add_row(vec![DataValue::Integer(3), DataValue::Integer(4)]).unwrap();
     block.add_row(vec![DataValue::Integer(5), DataValue::Integer(6)]).unwrap();
     
-    let enumerated: Vec<_> = block.enumerate_rows().collect();
+    let enumerated: Vec<_> = block.iter_rows().enumerate().collect();
     
     assert_eq!(enumerated.len(), 3);
     
@@ -820,20 +780,20 @@ fn test_loopblock_typed_getters() {
     
     // Test get_f64
     assert_eq!(block.get_f64(0, "float_col"), Some(3.14));
-    assert_eq!(block.get_f64_or(0, "float_col", 0.0), 3.14);
+    assert_eq!(block.get_f64(0, "float_col").unwrap_or(0.0), 3.14);
     
     // Test get_i64
     assert_eq!(block.get_i64(0, "int_col"), Some(42));
-    assert_eq!(block.get_i64_or(0, "int_col", 0), 42);
+    assert_eq!(block.get_i64(0, "int_col").unwrap_or(0), 42);
     
     // Test get_string
     assert_eq!(block.get_string(0, "string_col").map(|s| s.to_string()), Some("test".to_string()));
-    assert_eq!(block.get_string_or(0, "string_col", "default").to_string(), "test".to_string());
+    assert_eq!(block.get_string(0, "string_col").unwrap_or("default".into()).to_string(), "test".to_string());
     
     // Test default values for non-existent columns
-    assert_eq!(block.get_f64_or(0, "nonexistent", 99.9), 99.9);
-    assert_eq!(block.get_i64_or(0, "nonexistent", 99), 99);
-    assert_eq!(block.get_string_or(0, "nonexistent", "default").to_string(), "default");
+    assert_eq!(block.get_f64(0, "nonexistent").unwrap_or(99.9), 99.9);
+    assert_eq!(block.get_i64(0, "nonexistent").unwrap_or(99), 99);
+    assert_eq!(block.get_string(0, "nonexistent").unwrap_or("default".into()).to_string(), "default");
 }
 
 /// Test StarStats helper methods
@@ -875,12 +835,6 @@ fn test_starstats_helper_methods() {
     // Test has_simple_blocks
     assert!(stats.has_simple_blocks());
     
-    // Test avg_rows_per_loop
-    assert_eq!(stats.avg_rows_per_loop(), 2.0); // (3 + 1) / 2 = 2.0
-    
-    // Test avg_cols_per_loop
-    assert_eq!(stats.avg_cols_per_loop(), 1.5); // (1 + 2) / 2 = 1.5
-    
     // Test get_block_stats for existing block
     let loop1_stats = stats.get_block_stats("loop1");
     assert!(loop1_stats.is_some());
@@ -899,8 +853,6 @@ fn test_starstats_helper_methods() {
     
     assert!(!simple_stats.has_loop_blocks());
     assert!(simple_stats.has_simple_blocks());
-    assert_eq!(simple_stats.avg_rows_per_loop(), 0.0);
-    assert_eq!(simple_stats.avg_cols_per_loop(), 0.0);
 }
 
 /// Test all applicable APIs on all files
@@ -937,8 +889,8 @@ fn test_all_apis_on_all_files() {
         let data = read(&path, None).expect(&format!("read() failed for {}", file));
         assert!(!data.is_empty(), "Data should not be empty for {}", file);
         
-        // Test block_stats()
-        let mem_stats = block_stats(&data);
+        // Test StarStats::from_blocks()
+        let mem_stats = StarStats::from_blocks(&data);
         println!("  - {} blocks ({} simple, {} loop)", 
                  mem_stats.n_blocks, mem_stats.n_simple_blocks, mem_stats.n_loop_blocks);
         
@@ -990,9 +942,9 @@ fn test_all_apis_on_all_files() {
                         let cols = loop_block.columns();
                         println!("    Columns: {:?}", cols);
                         
-                        // Test has_column()
+                        // Test columns().contains()
                         if let Some(first_col) = cols.first() {
-                            assert!(loop_block.has_column(first_col));
+                            assert!(loop_block.columns().contains(&first_col));
                             
                             // Test get_column()
                             let col_data = loop_block.get_column(first_col);
@@ -1036,15 +988,9 @@ fn test_all_apis_on_all_files() {
 fn test_loopblock_builder_basic() {
     let block = LoopBlock::builder()
         .columns(&["col1", "col2", "col3"])
-        .row(vec![
-            DataValue::Integer(1),
-            DataValue::Integer(2),
-            DataValue::Integer(3),
-        ])
-        .row(vec![
-            DataValue::Integer(4),
-            DataValue::Integer(5),
-            DataValue::Integer(6),
+        .rows(vec![
+            vec![DataValue::Integer(1), DataValue::Integer(2), DataValue::Integer(3)],
+            vec![DataValue::Integer(4), DataValue::Integer(5), DataValue::Integer(6)],
         ])
         .build()
         .expect("Failed to build LoopBlock");
@@ -1058,21 +1004,17 @@ fn test_loopblock_builder_basic() {
 #[test]
 fn test_loopblock_builder_column_method() {
     let block = LoopBlock::builder()
-        .column("x")
-        .column("y")
-        .column("z")
-        .row(vec![
-            DataValue::Float(1.0),
-            DataValue::Float(2.0),
-            DataValue::Float(3.0),
+        .columns(&["x", "y", "z"])
+        .rows(vec![
+            vec![DataValue::Float(1.0), DataValue::Float(2.0), DataValue::Float(3.0)],
         ])
         .build()
         .expect("Failed to build LoopBlock");
 
     assert_eq!(block.column_count(), 3);
-    assert!(block.has_column("x"));
-    assert!(block.has_column("y"));
-    assert!(block.has_column("z"));
+    assert!(block.columns().contains(&"x"));
+    assert!(block.columns().contains(&"y"));
+    assert!(block.columns().contains(&"z"));
 }
 
 #[test]
@@ -1116,11 +1058,8 @@ fn test_loopblock_builder_columns_only() {
 fn test_loopblock_builder_mixed_types() {
     let block = LoopBlock::builder()
         .columns(&["int_col", "float_col", "string_col", "null_col"])
-        .row(vec![
-            DataValue::Integer(42),
-            DataValue::Float(3.14),
-            DataValue::String("hello".into()),
-            DataValue::Null,
+        .rows(vec![
+            vec![DataValue::Integer(42), DataValue::Float(3.14), DataValue::String("hello".into()), DataValue::Null],
         ])
         .build()
         .expect("Failed to build LoopBlock");
@@ -1141,8 +1080,10 @@ fn test_loopblock_builder_write_read_roundtrip() {
 
     let block = LoopBlock::builder()
         .columns(&["rlnCoordinateX", "rlnCoordinateY"])
-        .row(vec![DataValue::Float(100.0), DataValue::Float(200.0)])
-        .row(vec![DataValue::Float(300.0), DataValue::Float(400.0)])
+        .rows(vec![
+            vec![DataValue::Float(100.0), DataValue::Float(200.0)],
+            vec![DataValue::Float(300.0), DataValue::Float(400.0)],
+        ])
         .build()
         .expect("Failed to build LoopBlock");
 

@@ -166,15 +166,9 @@ fn test_loopblock_builder_pattern() {
     // Test the builder pattern for creating LoopBlocks
     let block = LoopBlock::builder()
         .columns(&["rlnCoordinateX", "rlnCoordinateY", "rlnAnglePsi"])
-        .row(vec![
-            DataValue::Float(100.0),
-            DataValue::Float(200.0),
-            DataValue::Float(45.0),
-        ])
-        .row(vec![
-            DataValue::Float(150.0),
-            DataValue::Float(250.0),
-            DataValue::Float(90.0),
+        .rows(vec![
+            vec![DataValue::Float(100.0), DataValue::Float(200.0), DataValue::Float(45.0)],
+            vec![DataValue::Float(150.0), DataValue::Float(250.0), DataValue::Float(90.0)],
         ])
         .build()
         .unwrap();
@@ -187,19 +181,20 @@ fn test_loopblock_builder_pattern() {
 
 #[test]
 fn test_loopblock_builder_column_method() {
-    // Test the builder pattern using column() method
+    // Test the builder pattern using columns
     let block = LoopBlock::builder()
-        .column("col1")
-        .column("col2")
-        .row(vec![DataValue::Integer(1), DataValue::Integer(2)])
-        .row(vec![DataValue::Integer(3), DataValue::Integer(4)])
+        .columns(&["col1", "col2"])
+        .rows(vec![
+            vec![DataValue::Integer(1), DataValue::Integer(2)],
+            vec![DataValue::Integer(3), DataValue::Integer(4)],
+        ])
         .build()
         .unwrap();
 
     assert_eq!(block.row_count(), 2);
     assert_eq!(block.column_count(), 2);
-    assert!(block.has_column("col1"));
-    assert!(block.has_column("col2"));
+    assert!(block.columns().contains(&"col1"));
+    assert!(block.columns().contains(&"col2"));
 }
 
 #[test]

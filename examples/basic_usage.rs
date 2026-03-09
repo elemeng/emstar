@@ -49,15 +49,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(DataBlock::Loop(particles)) = read_data.get_mut("particles") {
         println!("✓ Read {} particles", particles.row_count());
 
-        // Use Polars DataFrame operations to modify data
-        let df = particles.as_dataframe_mut();
+        // Modify X coordinates by adding 10.0 to each
+        for row_idx in 0..particles.row_count() {
+            if let Some(x) = particles.get_f64(row_idx, "rlnCoordinateX") {
+                particles.set_by_name(row_idx, "rlnCoordinateX", DataValue::Float(x + 10.0))?;
+            }
+        }
         
-        // Shift X coordinates by 10.0 using Polars
-        let col_x = df.column("rlnCoordinateX")?;
-        let shifted_x = col_x.f64()? + 10.0;
-        df.replace("rlnCoordinateX", shifted_x)?;
-        
-        println!("✓ Modified X coordinates (+10.0) using Polars\n");
+        println!("✓ Modified X coordinates (+10.0)\n");
     }
 
     write(&read_data, "example_modified.star", None)?;

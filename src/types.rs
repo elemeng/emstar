@@ -479,28 +479,6 @@ impl SimpleBlock {
         self.data.values()
     }
 
-    /// Get all values as a vector
-    ///
-    /// # Performance Note
-    /// This operation is O(n) and clones all values. For iteration without cloning,
-    /// use [`values()`] which returns an iterator over borrowed references.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use emstar::{SimpleBlock, DataValue};
-    ///
-    /// let mut block = SimpleBlock::new();
-    /// block.set("key1", DataValue::Integer(1));
-    /// block.set("key2", DataValue::Integer(2));
-    ///
-    /// let values = block.values_vec();
-    /// assert_eq!(values.len(), 2);
-    /// ```
-    pub fn values_vec(&self) -> Vec<DataValue> {
-        self.data.values().cloned().collect()
-    }
-
     /// Retain only the entries specified by the predicate
     pub fn retain<F>(&mut self, mut f: F)
     where
@@ -652,42 +630,10 @@ impl LoopBlock {
         block
     }
 
-    /// Builder method to add multiple columns at once (takes ownership of self)
-    ///
-    /// # Arguments
-    ///
-    /// * `columns` - Slice of column names to add
-    ///
-    /// # Returns
-    ///
-    /// Self with the columns added (for fluent chaining)
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use emstar::LoopBlock;
-    ///
-    /// let block = LoopBlock::new()
-    ///     .with_columns_mut(&["col1", "col2"]);
-    /// assert_eq!(block.column_count(), 2);
-    /// ```
-    pub fn with_columns_mut(mut self, columns: &[&str]) -> Self {
-        for col in columns {
-            self.add_column(col);
-        }
-        self
-    }
-
     /// Get the underlying DataFrame
     #[inline]
     pub fn as_dataframe(&self) -> &DataFrame {
         &self.df
-    }
-
-    /// Get mutable reference to the underlying DataFrame
-    #[inline]
-    pub fn as_dataframe_mut(&mut self) -> &mut DataFrame {
-        &mut self.df
     }
 
     /// Get number of rows
@@ -828,29 +774,6 @@ impl LoopBlock {
         Ok(())
     }
 
-    /// Push a row to the loop block (alias for add_row)
-    ///
-    /// This is a convenience alias for [`add_row()`] that follows common naming patterns
-    /// for data structures that support appending items.
-    ///
-    /// # Arguments
-    ///
-    /// * `values` - Vector of DataValue objects representing the row data
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use emstar::{LoopBlock, DataValue};
-    ///
-    /// let mut block = LoopBlock::with_columns(&["col1", "col2"]);
-    /// block.push_row(vec![DataValue::Integer(1), DataValue::Integer(2)]).unwrap();
-    /// assert_eq!(block.row_count(), 1);
-    /// ```
-    #[inline]
-    pub fn push_row(&mut self, values: Vec<DataValue>) -> crate::Result<()> {
-        self.add_row(values)
-    }
-
     /// Get a value by row index and column index
     /// Returns DataValue (owned) since values are extracted from DataFrame
     pub fn get(&self, row_idx: usize, col_idx: usize) -> Option<DataValue> {
@@ -895,25 +818,6 @@ impl LoopBlock {
         self.get_by_name(row_idx, col_name)?.as_float()
     }
 
-    /// Get a f64 value by row index and column name, with a default if not found
-    ///
-    /// Auto-converts Integer to Float if needed. Returns the default value if the value
-    /// is null, the column doesn't exist, or the row index is out of bounds.
-    ///
-    /// # Arguments
-    ///
-    /// * `row_idx` - Row index (0-based)
-    /// * `col_name` - Column name
-    /// * `default` - Default value to return if value not found
-    ///
-    /// # Returns
-    ///
-    /// The f64 value or the default
-    #[inline]
-    pub fn get_f64_or(&self, row_idx: usize, col_name: &str, default: f64) -> f64 {
-        self.get_f64(row_idx, col_name).unwrap_or(default)
-    }
-
     /// Get an i64 value by row index and column name
     ///
     /// Auto-converts Float to Integer if the value is a whole number. Returns None if
@@ -930,25 +834,6 @@ impl LoopBlock {
     #[inline]
     pub fn get_i64(&self, row_idx: usize, col_name: &str) -> Option<i64> {
         self.get_by_name(row_idx, col_name)?.as_integer()
-    }
-
-    /// Get an i64 value by row index and column name, with a default if not found
-    ///
-    /// Auto-converts Float to Integer if the value is a whole number. Returns the default
-    /// value if the value is null, the column doesn't exist, or the row index is out of bounds.
-    ///
-    /// # Arguments
-    ///
-    /// * `row_idx` - Row index (0-based)
-    /// * `col_name` - Column name
-    /// * `default` - Default value to return if value not found
-    ///
-    /// # Returns
-    ///
-    /// The i64 value or the default
-    #[inline]
-    pub fn get_i64_or(&self, row_idx: usize, col_name: &str, default: i64) -> i64 {
-        self.get_i64(row_idx, col_name).unwrap_or(default)
     }
 
     /// Get a string value by row index and column name
@@ -973,25 +858,6 @@ impl LoopBlock {
             DataValue::Bool(b) => Some(b.to_string().into()),
             DataValue::Null => None,
         }
-    }
-
-    /// Get a string value by row index and column name, with a default if not found
-    ///
-    /// Returns the string representation of any value type as SmartString. Returns the
-    /// default value if the value is null, the column doesn't exist, or the row index is out of bounds.
-    ///
-    /// # Arguments
-    ///
-    /// * `row_idx` - Row index (0-based)
-    /// * `col_name` - Column name
-    /// * `default` - Default value to return if value not found
-    ///
-    /// # Returns
-    ///
-    /// The string value or the default
-    #[inline]
-    pub fn get_string_or(&self, row_idx: usize, col_name: &str, default: &str) -> SmartString {
-        self.get_string(row_idx, col_name).unwrap_or_else(|| default.into())
     }
 
     /// Set a value by row and column index
@@ -1055,7 +921,7 @@ impl LoopBlock {
     /// ```
     pub fn set_by_name(&mut self, row_idx: usize, col_name: &str, value: DataValue) -> Result<(), crate::Error> {
         // Check if column exists first
-        if !self.has_column(col_name) {
+        if !self.df.get_column_names().iter().any(|&c| c.as_str() == col_name) {
             let available_cols = self.columns();
             return Err(crate::Error::InvalidFormat(format!(
                 "Column '{}' not found. Available columns: {:?}",
@@ -1139,32 +1005,6 @@ impl LoopBlock {
         }
     }
 
-    /// Update an entire row (Update)
-    pub fn update_row(&mut self, row_idx: usize, values: Vec<DataValue>) -> crate::Result<()> {
-        // Check bounds
-        if row_idx >= self.row_count() {
-            return Err(crate::Error::InvalidFormat(
-                format!("Row index {} out of bounds (total rows: {})", row_idx, self.row_count())
-            ));
-        }
-        
-        // Check column count
-        if values.len() != self.column_count() {
-            return Err(crate::Error::InvalidFormat(
-                format!("Expected {} columns, got {}", self.column_count(), values.len())
-            ));
-        }
-        
-        // Update each value in the row
-        // Collect column names first to avoid borrow checker issues
-        let col_names: Vec<String> = self.columns().iter().map(|&s| s.to_string()).collect();
-        for (col_name, value) in col_names.iter().zip(values.into_iter()) {
-            self.set_by_name(row_idx, col_name, value)?;
-        }
-        
-        Ok(())
-    }
-
     /// Remove a row by index (Delete)
     pub fn remove_row(&mut self, row_idx: usize) -> crate::Result<()> {
         // Check bounds
@@ -1207,12 +1047,6 @@ impl LoopBlock {
     /// Clear all data including columns (Delete all)
     pub fn clear(&mut self) {
         self.df = DataFrame::empty();
-    }
-
-    /// Check if a column exists
-    #[inline]
-    pub fn has_column(&self, col_name: &str) -> bool {
-        self.df.get_column_names().iter().any(|&c| c.as_str() == col_name)
     }
 
     /// Iterate over rows, returning `Vec<DataValue>` for each row
@@ -1291,52 +1125,6 @@ impl LoopBlock {
         })
     }
 
-    /// Try to get column as strongly typed Polars series
-    ///
-    /// Provides direct access to the underlying Polars series for advanced operations.
-    ///
-    /// # Arguments
-    ///
-    /// * `col_name` - Column name
-    ///
-    /// # Returns
-    ///
-    /// Reference to the series or error if column not found
-    pub fn try_get_series(&self, col_name: &str) -> Result<&Series, crate::Error> {
-        let col = self.df.column(col_name)
-            .map_err(|_| crate::Error::InvalidFormat(format!("Column '{}' not found", col_name)))?;
-        col.as_series()
-            .ok_or_else(|| crate::Error::InvalidFormat("Failed to get series from column".to_string()))
-    }    /// Iterate over all rows with their indices
-    ///
-    /// # Performance Note
-    /// This operation is O(n*m) where n is the number of rows and m is the number of columns.
-    /// Each iteration creates a new vector and clones all values in the row. For better
-    /// performance with large datasets, consider using column iterators instead.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use emstar::{LoopBlock, DataValue};
-    ///
-    /// let mut block = LoopBlock::with_columns(&["col1", "col2"]);
-    /// block.add_row(vec![DataValue::Integer(1), DataValue::Integer(2)]).unwrap();
-    ///
-    /// for (i, row) in block.enumerate_rows() {
-    ///     println!("Row {}: {:?}", i, row);
-    /// }
-    /// ```
-    pub fn enumerate_rows(&self) -> impl Iterator<Item = (usize, Vec<DataValue>)> + '_ {
-        let nrows = self.row_count();
-        let columns: Vec<_> = self.df.get_columns().iter().collect();
-        (0..nrows).map(move |row_idx| {
-            let row: Vec<DataValue> = columns.iter()
-                .map(|col| column_value_at(col, row_idx))
-                .collect();
-            (row_idx, row)
-        })
-    }
-
 }
 
 impl Default for LoopBlock {
@@ -1394,25 +1182,6 @@ impl LoopBlockBuilder {
         self
     }
 
-    /// Add a single column
-    ///
-    /// # Example
-    /// ```
-    /// use emstar::LoopBlock;
-    ///
-    /// let block = LoopBlock::builder()
-    ///     .column("col1")
-    ///     .column("col2")
-    ///     .build()
-    ///     .unwrap();
-    ///
-    /// assert_eq!(block.column_count(), 2);
-    /// ```
-    pub fn column(mut self, name: &str) -> Self {
-        self.columns.push(name.to_string());
-        self
-    }
-
     /// Set all rows at once
     ///
     /// # Example
@@ -1435,77 +1204,6 @@ impl LoopBlockBuilder {
         self
     }
 
-    /// Add a single row
-    ///
-    /// # Example
-    /// ```
-    /// use emstar::{LoopBlock, DataValue};
-    ///
-    /// let block = LoopBlock::builder()
-    ///     .columns(&["col1", "col2"])
-    ///     .row(vec![DataValue::Float(1.0), DataValue::Float(2.0)])
-    ///     .row(vec![DataValue::Float(3.0), DataValue::Float(4.0)])
-    ///     .build()
-    ///     .unwrap();
-    ///
-    /// assert_eq!(block.row_count(), 2);
-    /// ```
-    pub fn row(mut self, row: Vec<DataValue>) -> Self {
-        self.rows.push(row);
-        self
-    }
-
-    /// Add multiple columns from an iterator
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use emstar::LoopBlock;
-    ///
-    /// let block = LoopBlock::builder()
-    ///     .columns_from_iter(vec!["col1", "col2", "col3"])
-    ///     .build()
-    ///     .unwrap();
-    ///
-    /// assert_eq!(block.column_count(), 3);
-    /// ```
-    pub fn columns_from_iter<I, S>(mut self, names: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        for name in names {
-            self.columns.push(name.as_ref().to_string());
-        }
-        self
-    }
-
-    /// Add multiple rows from an iterator
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use emstar::{LoopBlock, DataValue};
-    ///
-    /// let block = LoopBlock::builder()
-    ///     .columns(&["col1", "col2"])
-    ///     .rows_from_iter(vec![
-    ///         vec![DataValue::Integer(1), DataValue::Integer(2)],
-    ///         vec![DataValue::Integer(3), DataValue::Integer(4)],
-    ///     ])
-    ///     .build()
-    ///     .unwrap();
-    ///
-    /// assert_eq!(block.row_count(), 2);
-    /// ```
-    pub fn rows_from_iter<I>(mut self, rows: I) -> Self
-    where
-        I: IntoIterator<Item = Vec<DataValue>>,
-    {
-        self.rows.extend(rows);
-        self
-    }
-
     /// Validate the current builder state (useful for early error detection)
     ///
     /// Returns an error if the builder state is invalid, such as having rows
@@ -1518,7 +1216,7 @@ impl LoopBlockBuilder {
     ///
     /// let builder = LoopBlock::builder()
     ///     .columns(&["col1", "col2"])
-    ///     .row(vec![DataValue::Integer(1)]);
+    ///     .rows(vec![vec![DataValue::Integer(1)]]);
     ///
     /// // This will fail because the row has only 1 column but 2 were defined
     /// assert!(builder.validate().is_err());
@@ -1556,7 +1254,7 @@ impl LoopBlockBuilder {
     ///
     /// let block = LoopBlock::builder()
     ///     .columns(&["col1", "col2"])
-    ///     .row(vec![DataValue::Integer(1), DataValue::Integer(2)])
+    ///     .rows(vec![vec![DataValue::Integer(1), DataValue::Integer(2)]])
     ///     .build_validated()
     ///     .unwrap();
     /// ```
@@ -1596,40 +1294,6 @@ impl PartialEq for LoopBlock {
         // Compare DataFrames by checking if they're equal
         // This is a simplified comparison - proper DataFrame comparison would be more complex
         self.columns() == other.columns() && self.row_count() == other.row_count()
-    }
-}
-
-impl IntoIterator for LoopBlock {
-    type Item = Vec<DataValue>;
-    type IntoIter = std::vec::IntoIter<Vec<DataValue>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let mut rows = Vec::with_capacity(self.row_count());
-        for row_idx in 0..self.row_count() {
-            let mut row = Vec::with_capacity(self.column_count());
-            for col_name in &self.columns() {
-                row.push(self.get_by_name(row_idx, col_name).unwrap_or(DataValue::Null));
-            }
-            rows.push(row);
-        }
-        rows.into_iter()
-    }
-}
-
-impl IntoIterator for &LoopBlock {
-    type Item = Vec<DataValue>;
-    type IntoIter = std::vec::IntoIter<Vec<DataValue>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let mut rows = Vec::with_capacity(self.row_count());
-        for row_idx in 0..self.row_count() {
-            let mut row = Vec::with_capacity(self.column_count());
-            for col_name in &self.columns() {
-                row.push(self.get_by_name(row_idx, col_name).unwrap_or(DataValue::Null));
-            }
-            rows.push(row);
-        }
-        rows.into_iter()
     }
 }
 
@@ -1768,25 +1432,6 @@ impl StarStats {
         self.n_simple_blocks > 0
     }
 
-    /// Get the average number of columns per LoopBlock
-    #[inline]
-    pub fn avg_cols_per_loop(&self) -> f64 {
-        if self.n_loop_blocks == 0 {
-            0.0
-        } else {
-            self.total_loop_cols as f64 / self.n_loop_blocks as f64
-        }
-    }
-
-    /// Get the average number of rows per LoopBlock
-    #[inline]
-    pub fn avg_rows_per_loop(&self) -> f64 {
-        if self.n_loop_blocks == 0 {
-            0.0
-        } else {
-            self.total_loop_rows as f64 / self.n_loop_blocks as f64
-        }
-    }
 }
 
 impl DataBlock {
@@ -1859,24 +1504,6 @@ impl DataBlock {
     /// Get a reference to the LoopBlock, panicking with the given message if not a LoopBlock
     #[inline]
     pub fn expect_loop(&self, msg: &str) -> &LoopBlock {
-        match self {
-            DataBlock::Loop(block) => block,
-            _ => panic!("{}", msg),
-        }
-    }
-
-    /// Get a mutable reference to the SimpleBlock, panicking with the given message if not a SimpleBlock
-    #[inline]
-    pub fn expect_simple_mut(&mut self, msg: &str) -> &mut SimpleBlock {
-        match self {
-            DataBlock::Simple(block) => block,
-            _ => panic!("{}", msg),
-        }
-    }
-
-    /// Get a mutable reference to the LoopBlock, panicking with the given message if not a LoopBlock
-    #[inline]
-    pub fn expect_loop_mut(&mut self, msg: &str) -> &mut LoopBlock {
         match self {
             DataBlock::Loop(block) => block,
             _ => panic!("{}", msg),

@@ -62,11 +62,11 @@
 //! // Create a loop block using the builder pattern
 //! let particles = LoopBlock::builder()
 //!     .columns(&["rlnCoordinateX", "rlnCoordinateY", "rlnCoordinateZ"])
-//!     .row(vec![
+//!     .rows(vec![vec![
 //!         DataValue::Float(100.0),
 //!         DataValue::Float(200.0),
 //!         DataValue::Float(50.0),
-//!     ])
+//!     ]])
 //!     .build()?;
 //!
 //! data.insert("particles".to_string(), DataBlock::Loop(particles));
@@ -107,7 +107,6 @@
 //! println!("Total blocks: {}", file_stats.n_blocks);
 //! println!("Loop blocks: {}", file_stats.n_loop_blocks);
 //! println!("Total particles: {}", file_stats.total_loop_rows);
-//! println!("Average rows per block: {:.1}", file_stats.avg_rows_per_loop());
 //! # Ok::<(), emstar::Error>(())
 //! ```
 //!
@@ -184,15 +183,9 @@
 //!
 //! let particles = LoopBlock::builder()
 //!     .columns(&["rlnCoordinateX", "rlnCoordinateY", "rlnAnglePsi"])
-//!     .row(vec![
-//!         DataValue::Float(100.0),
-//!         DataValue::Float(200.0),
-//!         DataValue::Float(45.0),
-//!     ])
-//!     .row(vec![
-//!         DataValue::Float(150.0),
-//!         DataValue::Float(250.0),
-//!         DataValue::Float(90.0),
+//!     .rows(vec![
+//!         vec![DataValue::Float(100.0), DataValue::Float(200.0), DataValue::Float(45.0)],
+//!         vec![DataValue::Float(150.0), DataValue::Float(250.0), DataValue::Float(90.0)],
 //!     ])
 //!     .build()?;
 //!
@@ -423,7 +416,7 @@ pub struct ReadOptions {
 /// let mut new_blocks = HashMap::new();
 /// let particles = LoopBlock::builder()
 ///     .columns(&["rlnCoordinateX", "rlnCoordinateY"])
-///     .row(vec![DataValue::Float(100.0), DataValue::Float(200.0)])
+///     .rows(vec![vec![DataValue::Float(100.0), DataValue::Float(200.0)]])
 ///     .build()?;
 /// new_blocks.insert("new_particles".to_string(), DataBlock::Loop(particles));
 ///
@@ -437,21 +430,6 @@ pub fn merge_with_file<P: AsRef<Path>>(
     let mut existing_blocks = read(path.as_ref(), None)?;
     existing_blocks.extend(new_blocks.iter().map(|(k, v)| (k.clone(), v.clone())));
     write(&existing_blocks, path, None)
-}
-
-/// Append data blocks to an existing STAR file.
-///
-/// **DEPRECATED:** This function has been renamed to [`merge_with_file`] to better
-/// reflect its behavior. It reads the entire file, merges in memory, and rewrites.
-/// This is not a true append operation.
-///
-/// Use [`merge_with_file`] instead.
-#[deprecated(since = "0.2.0", note = "Use merge_with_file() instead")]
-pub fn append<P: AsRef<Path>>(
-    new_blocks: &HashMap<String, DataBlock>,
-    path: P,
-) -> Result<()> {
-    merge_with_file(new_blocks, path)
 }
 
 /// Write data blocks to a STAR file.
@@ -601,30 +579,7 @@ pub fn stats<P: AsRef<Path>>(path: P) -> Result<StarStats> {
     Ok(StarStats::from_blocks(&blocks))
 }
 
-/// Get statistics for data blocks in memory.
-///
-/// This function computes statistics from already-loaded data blocks.
-///
-/// # Arguments
-///
-/// * `blocks` - HashMap of data blocks
-///
-/// # Example
-///
-/// ```rust
-/// use emstar::{block_stats, LoopBlock, SimpleBlock, DataBlock, DataValue};
-/// use std::collections::HashMap;
-///
-/// let mut blocks = HashMap::new();
-/// blocks.insert("general".to_string(), DataBlock::Simple(SimpleBlock::new()));
-/// blocks.insert("particles".to_string(), DataBlock::Loop(LoopBlock::new()));
-///
-/// let stats = block_stats(&blocks);
-/// assert_eq!(stats.n_blocks, 2);
-/// # ```
-pub fn block_stats(blocks: &HashMap<String, DataBlock>) -> StarStats {
-    StarStats::from_blocks(blocks)
-}
+
 
 /// List all data blocks with their names and types.
 ///

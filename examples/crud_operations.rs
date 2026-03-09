@@ -13,23 +13,10 @@ use std::path::Path;
 fn create_particles_with_builder() -> emstar::Result<LoopBlock> {
     LoopBlock::builder()
         .columns(&["rlnCoordinateX", "rlnCoordinateY", "rlnAnglePsi", "rlnImageName"])
-        .row(vec![
-            DataValue::Float(125.5),
-            DataValue::Float(340.2),
-            DataValue::Float(45.3),
-            DataValue::String("000001@particle.mrcs".into()),
-        ])
-        .row(vec![
-            DataValue::Float(200.0),
-            DataValue::Float(150.5),
-            DataValue::Float(90.0),
-            DataValue::String("000002@particle.mrcs".into()),
-        ])
-        .row(vec![
-            DataValue::Float(300.7),
-            DataValue::Float(420.1),
-            DataValue::Float(180.0),
-            DataValue::String("000003@particle.mrcs".into()),
+        .rows(vec![
+            vec![DataValue::Float(125.5), DataValue::Float(340.2), DataValue::Float(45.3), DataValue::String("000001@particle.mrcs".into())],
+            vec![DataValue::Float(200.0), DataValue::Float(150.5), DataValue::Float(90.0), DataValue::String("000002@particle.mrcs".into())],
+            vec![DataValue::Float(300.7), DataValue::Float(420.1), DataValue::Float(180.0), DataValue::String("000003@particle.mrcs".into())],
         ])
         .build()
 }
@@ -132,13 +119,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         particles.set_by_name(0, "rlnCoordinateX", DataValue::Float(999.9))?;
         println!("   ✓ Updated X coordinate of first particle to 999.9");
         
-        // Update entire row
-        particles.update_row(1, vec![
-            DataValue::Float(500.0),
-            DataValue::Float(600.0),
-            DataValue::Float(270.0),
-            DataValue::String("updated@particle.mrcs".into()),
-        ])?;
+        // Update entire row using set_by_name
+        particles.set_by_name(1, "rlnCoordinateX", DataValue::Float(500.0))?;
+        particles.set_by_name(1, "rlnCoordinateY", DataValue::Float(600.0))?;
+        particles.set_by_name(1, "rlnAnglePsi", DataValue::Float(270.0))?;
+        particles.set_by_name(1, "rlnImageName", DataValue::String("updated@particle.mrcs".into()))?;
         println!("   ✓ Updated entire second row");
         
         // Add a new row
@@ -211,8 +196,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check column existence
     let data_blocks = read(file_path, None)?;
     if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
-        println!("   ✓ Has 'rlnCoordinateX' column: {}", particles.has_column("rlnCoordinateX"));
-        println!("   ✓ Has 'rlnNonExistent' column: {}", particles.has_column("rlnNonExistent"));
+        println!("   ✓ Has 'rlnCoordinateX' column: {}", particles.columns().contains(&"rlnCoordinateX"));
+        println!("   ✓ Has 'rlnNonExistent' column: {}", particles.columns().contains(&"rlnNonExistent"));
     }
     println!();
 

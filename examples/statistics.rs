@@ -4,7 +4,7 @@
 //! STAR file contents without fully loading all data.
 
 use emstar::{
-    write, stats, block_stats,
+    write, stats,
     DataBlock, DataValue, LoopBlock, SimpleBlock,
     DataBlockStats, StarStats
 };
@@ -59,30 +59,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Using the builder pattern for cleaner, declarative construction
     let micrographs = LoopBlock::builder()
         .columns(&["rlnMicrographName", "rlnMotionModelCoeff", "rlnAccumMotionTotal"])
-        .row(vec![
-            DataValue::String("micrograph_000.mrc".into()),
-            DataValue::Integer(5),
-            DataValue::Float(15.5),
-        ])
-        .row(vec![
-            DataValue::String("micrograph_001.mrc".into()),
-            DataValue::Integer(5),
-            DataValue::Float(16.5),
-        ])
-        .row(vec![
-            DataValue::String("micrograph_002.mrc".into()),
-            DataValue::Integer(5),
-            DataValue::Float(17.5),
-        ])
-        .row(vec![
-            DataValue::String("micrograph_003.mrc".into()),
-            DataValue::Integer(5),
-            DataValue::Float(18.5),
-        ])
-        .row(vec![
-            DataValue::String("micrograph_004.mrc".into()),
-            DataValue::Integer(5),
-            DataValue::Float(19.5),
+        .rows(vec![
+            vec![DataValue::String("micrograph_000.mrc".into()), DataValue::Integer(5), DataValue::Float(15.5)],
+            vec![DataValue::String("micrograph_001.mrc".into()), DataValue::Integer(5), DataValue::Float(16.5)],
+            vec![DataValue::String("micrograph_002.mrc".into()), DataValue::Integer(5), DataValue::Float(17.5)],
+            vec![DataValue::String("micrograph_003.mrc".into()), DataValue::Integer(5), DataValue::Float(18.5)],
+            vec![DataValue::String("micrograph_004.mrc".into()), DataValue::Integer(5), DataValue::Float(19.5)],
         ])
         .build()?;
     data_blocks.insert("micrographs".to_string(), DataBlock::Loop(micrographs));
@@ -106,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. Using block_stats() function on existing data:");
     println!("   (Computes statistics from already-loaded HashMap)\n");
     
-    let mem_stats = block_stats(&data_blocks);
+    let mem_stats = StarStats::from_blocks(&data_blocks);
     print_stats(&mem_stats);
 
     // =========================================================================
@@ -155,8 +137,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n5. Summary statistics:\n");
     println!("   - Has loop blocks: {}", file_stats.has_loop_blocks());
     println!("   - Has simple blocks: {}", file_stats.has_simple_blocks());
-    println!("   - Avg rows per LoopBlock: {:.1}", file_stats.avg_rows_per_loop());
-    println!("   - Avg cols per LoopBlock: {:.1}", file_stats.avg_cols_per_loop());
 
     // =========================================================================
     // DataBlock-level stats access
