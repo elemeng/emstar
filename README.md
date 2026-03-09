@@ -63,13 +63,9 @@ let simple: SimpleBlock = [
 // Create a loop block using the builder pattern
 let particles = LoopBlock::builder()
     .columns(&["rlnCoordinateX", "rlnCoordinateY"])
-    .row(vec![
-        DataValue::Float(91.7987),
-        DataValue::Float(83.6226),
-    ])
-    .row(vec![
-        DataValue::Float(97.6358),
-        DataValue::Float(80.4370),
+    .rows(vec![
+        vec![DataValue::Float(91.7987), DataValue::Float(83.6226)],
+        vec![DataValue::Float(97.6358), DataValue::Float(80.4370)],
     ])
     .build()?;
 
@@ -156,20 +152,20 @@ write(&data, "output.star", Some(options))?;
 
 ### Utility Functions
 
-#### Append to Existing File
+#### Merge with Existing File
 
 ```rust
-use emstar::{append, DataBlock, LoopBlock, DataValue};
+use emstar::{merge_with_file, DataBlock, LoopBlock, DataValue};
 use std::collections::HashMap;
 
 let mut new_blocks = HashMap::new();
 let particles = LoopBlock::builder()
     .columns(&["rlnCoordinateX", "rlnCoordinateY"])
-    .row(vec![DataValue::Float(100.0), DataValue::Float(200.0)])
+    .rows(vec![vec![DataValue::Float(100.0), DataValue::Float(200.0)]])
     .build()?;
 new_blocks.insert("new_particles".to_string(), DataBlock::Loop(particles));
 
-append(&new_blocks, "existing.star")?;
+merge_with_file(&new_blocks, "existing.star")?;
 ```
 
 #### Validate STAR File
@@ -257,7 +253,6 @@ let column = block.get_column("rlnCoordinateX");
 
 // Update
 block.set_by_name(0, "rlnCoordinateX", DataValue::Float(150.0))?;
-block.update_row(0, vec![DataValue::Float(150.0), DataValue::Float(250.0)])?;
 
 // Delete
 block.remove_row(0)?;
@@ -266,7 +261,7 @@ block.clear_rows(); // Keep columns, remove all rows
 block.clear(); // Remove everything
 
 // Utilities
-let has_col = block.has_column("rlnCoordinateX");
+let has_col = block.columns().contains(&"rlnCoordinateX");
 let n_rows = block.row_count();
 let n_cols = block.column_count();
 
@@ -305,9 +300,7 @@ assert_eq!(particles.column_count(), 3);
 Builder methods:
 
 - `.columns(&["col1", "col2"])` - Set all column names at once
-- `.column("col_name")` - Add a single column
-- `.rows(&[vec![...], vec![...]])` - Add multiple rows at once
-- `.row(vec![...])` - Add a single row
+- `.rows(vec![vec![...], vec![...]])` - Add multiple rows at once
 - `.build()` - Construct the LoopBlock
 
 ### DataBlock Convenience Methods
@@ -320,10 +313,12 @@ use emstar::{DataBlock, SimpleBlock, LoopBlock};
 let data_blocks = emstar::read("particles.star")?;
 
 // Using expect_simple/expect_loop (panics with message if wrong type)
-let simple_block = data_blocks.get("general")
-    .expect_simple("general should be a SimpleBlock");
-let loop_block = data_blocks.get("particles")
-    .expect_loop("particles should be a LoopBlock");
+if let Some(block) = data_blocks.get("general") {
+    let simple_block = block.expect_simple("general should be a SimpleBlock");
+}
+if let Some(block) = data_blocks.get("particles") {
+    let loop_block = block.expect_loop("particles should be a LoopBlock");
+}
 
 // Using as_simple/as_loop (returns Option)
 if let Some(simple) = data_blocks.get("general").as_simple() {
@@ -357,7 +352,7 @@ assert_eq!(block.len(), 3);
 Analyze STAR file contents:
 
 ```rust
-use emstar::{stats, block_stats, DataBlockStats};
+use emstar::{stats, DataBlockStats, StarStats};
 use std::collections::HashMap;
 
 // Get statistics from file (loads entire file into memory)
@@ -367,7 +362,6 @@ println!("Total blocks: {}", file_stats.n_blocks);
 println!("SimpleBlocks: {}", file_stats.n_simple_blocks);
 println!("LoopBlocks: {}", file_stats.n_loop_blocks);
 println!("Total particles: {}", file_stats.total_loop_rows);
-println!("Avg rows per LoopBlock: {:.1}", file_stats.avg_rows_per_loop());
 
 // Get specific block stats
 if let Some(DataBlockStats::Loop(l)) = file_stats.get_block_stats("particles") {
@@ -375,8 +369,8 @@ if let Some(DataBlockStats::Loop(l)) = file_stats.get_block_stats("particles") {
 }
 
 // Get stats from in-memory data
-let blocks: HashMap<String, DataBlock> = read("particles.star")?;
-let mem_stats = block_stats(&blocks);
+let blocks: HashMap<String, DataBlock> = read("particles.star", None)?;
+let mem_stats = StarStats::from_blocks(&blocks);
 ```
 
 ## Data Types
@@ -484,12 +478,10 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | `add_column(name)` | Add a column |
 | `add_row(values)` | Add a row |
 | `set_by_name(row, col_name, value)` | Update a cell |
-| `update_row(idx, values)` | Update entire row |
 | `remove_row(idx)` | Delete a row |
 | `remove_column(name)` | Delete a column |
 | `clear_rows()` | Remove all rows |
 | `clear()` | Remove all data |
-| `has_column(name)` | Check if column exists |
 | `row_count()` | Get number of rows |
 | `column_count()` | Get number of columns |
 | `stats()` | Get block statistics |
@@ -528,6 +520,57 @@ emstar is designed for high performance:
 - **Efficient numeric parsing** using `lexical`
 - **Optimized memory layout** for loop blocks using Polars DataFrames
 - **Streaming I/O** for large files
+
+### Performance Recommendations
+
+For best performance with emstar:
+
+**Fast Column Access**
+```rust
+// Slow - allocates a Vec<DataValue>
+let col = block.get_column("x").unwrap();
+
+// Fast - zero-copy iteration
+for val in block.column_iter_f64("x").unwrap() {
+    // val is Option<f64>
+}
+```
+
+**Batch Updates**
+```rust
+// Slow - O(n) per call, each call recreates the column
+for (i, val) in updates {
+    block.set_by_name(i, "col", val)?;
+}
+
+// Fast - rebuild once using the builder pattern
+let mut rows = Vec::new();
+for val in updates {
+    rows.push(vec![val]);
+}
+let new_block = LoopBlock::builder()
+    .columns(&["col"])
+    .rows(rows)
+    .build()?;
+```
+
+**Row Iteration**
+```rust
+// Slow - allocates Vec for each row
+for row in block.iter_rows() {
+    // row is Vec<DataValue>
+}
+
+// Fast - use column iterators when possible
+if let (Some(x_iter), Some(y_iter)) = (
+    block.column_iter_f64("rlnCoordinateX"),
+    block.column_iter_f64("rlnCoordinateY")
+) {
+    for (x, y) in x_iter.zip(y_iter) {
+        // x, y are Option<f64>
+    }
+}
+```
 
 ### Benchmarks
 

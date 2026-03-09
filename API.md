@@ -213,12 +213,12 @@ for (name, block_type) in blocks {
 
 ---
 
-### `append`
+### `merge_with_file`
 
-Append data blocks to an existing STAR file. Preserves original blocks, overwrites blocks with same name.
+Merge data blocks with an existing STAR file. Preserves original blocks, overwrites blocks with same name.
 
 ```rust
-pub fn append<P: AsRef<Path>>(
+pub fn merge_with_file<P: AsRef<Path>>(
     new_blocks: &HashMap<String, DataBlock>,
     path: P,
 ) -> Result<()>
@@ -226,23 +226,23 @@ pub fn append<P: AsRef<Path>>(
 
 **Arguments:**
 
-- `new_blocks` - HashMap of new data blocks to append
+- `new_blocks` - HashMap of new data blocks to merge
 - `path` - Path to the STAR file
 
 **Example:**
 
 ```rust
-use emstar::{append, LoopBlock, DataBlock, DataValue};
+use emstar::{merge_with_file, LoopBlock, DataBlock, DataValue};
 use std::collections::HashMap;
 
 let mut new_blocks = HashMap::new();
 let particles = LoopBlock::builder()
     .columns(&["rlnCoordinateX", "rlnCoordinateY"])
-    .row(vec![DataValue::Float(100.0), DataValue::Float(200.0)])
+    .rows(vec![vec![DataValue::Float(100.0), DataValue::Float(200.0)]])
     .build()?;
 new_blocks.insert("new_particles".to_string(), DataBlock::Loop(particles));
 
-append(&new_blocks, "existing.star")?;
+merge_with_file(&new_blocks, "existing.star")?;
 ```
 
 ---
@@ -388,8 +388,8 @@ pub enum DataBlock {
 - `is_loop() -> bool` - Check if block is a LoopBlock
 - `as_simple() -> Option<&SimpleBlock>` - Get immutable SimpleBlock reference
 - `as_loop() -> Option<&LoopBlock>` - Get immutable LoopBlock reference
-- `as_simple_mut() -> Option<&mut SimpleBlock>` - Get mutable SimpleBlock reference
-- `as_loop_mut() -> Option<&mut LoopBlock>` - Get mutable LoopBlock reference
+- `as_simple_mut() -> Option<&mut SimpleBlock>` - Get mutable SimpleBlock reference (use `.expect()` to unwrap)
+- `as_loop_mut() -> Option<&mut LoopBlock>` - Get mutable LoopBlock reference (use `.expect()` to unwrap)
 - `expect_simple(msg: &str) -> &SimpleBlock` - Get SimpleBlock or panic with message
 - `expect_loop(msg: &str) -> &LoopBlock` - Get LoopBlock or panic with message
 - `block_type() -> &'static str` - Get block type as string
@@ -654,24 +654,6 @@ println!("Columns: {:?}", cols);
 
 ---
 
-#### `has_column`
-
-Check if a column exists.
-
-```rust
-pub fn has_column(&self, name: &str) -> bool
-```
-
-**Example:**
-
-```rust
-if block.has_column("rlnCoordinateX") {
-    // Column exists
-}
-```
-
----
-
 #### `get_column`
 
 Get all values in a column.
@@ -906,28 +888,12 @@ Set the column names.
 pub fn columns(self, columns: &[&str]) -> Self
 ```
 
-#### `column`
-
-Add a single column.
-
-```rust
-pub fn column(self, name: &str) -> Self
-```
-
 #### `rows`
 
 Set all rows at once.
 
 ```rust
-pub fn rows(self, rows: &[Vec<DataValue>]) -> Self
-```
-
-#### `row`
-
-Add a single row.
-
-```rust
-pub fn row(self, row: Vec<DataValue>) -> Self
+pub fn rows(self, rows: Vec<Vec<DataValue>>) -> Self
 ```
 
 #### `build`
@@ -965,26 +931,9 @@ println!("Total particles: {}", stats.total_loop_rows);
 
 ---
 
-### `block_stats`
-
-Get statistics for data blocks in memory.
-
-```rust
-pub fn block_stats(blocks: &HashMap<String, DataBlock>) -> StarStats
-```
-
-**Example:**
-
-```rust
-use emstar::block_stats;
-
-let stats = block_stats(&data_blocks);
-println!("Total blocks: {}", stats.n_blocks);
-```
-
----
-
 ### `StarStats`
+
+Statistics about a STAR file.
 
 Statistics about a STAR file.
 
@@ -996,14 +945,17 @@ Statistics about a STAR file.
 - `total_loop_rows: usize` - Total rows across all LoopBlocks
 - `total_loop_cols: usize` - Total columns across all LoopBlocks
 - `total_simple_entries: usize` - Total entries across all SimpleBlocks
-- `block_stats: HashMap<String, DataBlockStats>` - Per-block statistics
+- `block_stats: Vec<(String, DataBlockStats)>` - Per-block statistics
+
+**Constructor:**
+
+- `from_blocks(&HashMap<String, DataBlock>) -> StarStats` - Create stats from in-memory data
 
 **Methods:**
 
 - `has_loop_blocks() -> bool` - Check if file has any LoopBlocks
 - `has_simple_blocks() -> bool` - Check if file has any SimpleBlocks
-- `avg_rows_per_loop() -> f64` - Average rows per LoopBlock
-- `get_block_stats(&str) -> Option<&DataBlockStats>` - Get stats for specific block
+- `get_block_stats(&str) -> Option<DataBlockStats>` - Get stats for specific block
 
 ---
 
@@ -1213,16 +1165,15 @@ if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
 ### Computing Statistics
 
 ```rust
-use emstar::{stats, block_stats};
+use emstar::{stats, StarStats};
 
 // Get statistics from file
 let file_stats = stats("particles.star")?;
 println!("Total particles: {}", file_stats.total_loop_rows);
-println!("Average rows per block: {:.1}", file_stats.avg_rows_per_loop());
 
 // Get statistics from loaded data
 let data_blocks = emstar::read("particles.star", None)?;
-let mem_stats = block_stats(&data_blocks);
+let mem_stats = StarStats::from_blocks(&data_blocks);
 println!("Total blocks: {}", mem_stats.n_blocks);
 ```
 
@@ -1267,6 +1218,60 @@ if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
 - **Memory:** LoopBlocks use Polars DataFrames for efficient columnar storage
 - **String Storage:** Uses `SmartString` for small string optimization
 - **Builder Pattern:** Use `LoopBlock::builder()` for ergonomic block construction
+
+---
+
+## Performance Recommendations
+
+### Fast Column Access
+
+```rust
+// Slow - allocates Vec<DataValue>
+let col = block.get_column("x").unwrap();
+
+// Fast - zero-copy iteration
+for val in block.column_iter_f64("x").unwrap() {
+    // val is Option<f64>
+}
+```
+
+### Batch Updates
+
+```rust
+// Slow - O(n) per call, recreates column each time
+for (i, val) in updates {
+    block.set_by_name(i, "col", val)?;
+}
+
+// Fast - rebuild once using builder
+let mut rows = Vec::new();
+for val in updates {
+    rows.push(vec![val]);
+}
+let new_block = LoopBlock::builder()
+    .columns(&["col"])
+    .rows(rows)
+    .build()?;
+```
+
+### Row Iteration
+
+```rust
+// Slow - allocates Vec for each row
+for row in block.iter_rows() {
+    // row is Vec<DataValue>
+}
+
+// Fast - use column iterators
+if let (Some(x_iter), Some(y_iter)) = (
+    block.column_iter_f64("rlnCoordinateX"),
+    block.column_iter_f64("rlnCoordinateY")
+) {
+    for (x, y) in x_iter.zip(y_iter) {
+        // x, y are Option<f64>
+    }
+}
+```
 
 ---
 

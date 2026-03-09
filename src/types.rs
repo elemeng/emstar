@@ -865,8 +865,7 @@ impl LoopBlock {
     /// # Performance Note
     /// This operation is O(n) where n is the number of rows in the column,
     /// as Polars DataFrames use immutable columnar storage. The entire column
-    /// must be recreated to change a single value. For batch updates to an
-    /// entire row, use [`Self::update_row`] which minimizes overhead.
+    /// must be recreated to change a single value.
     ///
     /// # Arguments
     ///
@@ -876,7 +875,7 @@ impl LoopBlock {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::InvalidFormat`] if the column index is out of bounds.
+    /// Returns `Error::InvalidFormat` if the column index is out of bounds.
     ///
     /// # Example
     ///
@@ -905,7 +904,7 @@ impl LoopBlock {
     /// must be recreated to change a single value.
     /// 
     /// **Avoid calling this in a loop** for multiple updates. Instead:
-    /// - For updating an entire row: Use [`Self::update_row`]
+    /// - For updating an entire row: Use multiple `set_by_name` calls
     /// - For batch updates across multiple rows/columns: Collect changes and 
     ///   rebuild the LoopBlock using the builder pattern
     /// 
@@ -949,8 +948,8 @@ impl LoopBlock {
     ///
     /// # Performance Note
     /// This operation is O(n) where n is the number of rows, and clones all values.
-    /// For iteration without cloning, use [`column_iter_f64()`], [`column_iter_i64()`],
-    /// or [`column_iter_str()`] which return iterators over borrowed values.
+    /// For iteration without cloning, use `column_iter_f64()`, `column_iter_i64()`,
+    /// or `column_iter_str()` which return iterators over borrowed values.
     ///
     /// # Example
     ///

@@ -553,7 +553,7 @@ pub fn to_string(data_blocks: &HashMap<String, DataBlock>) -> Result<String> {
 /// **Note:** This function loads the entire file into memory. For very large files,
 /// consider using chunked reading or memory-mapped files (future feature).
 ///
-/// See also: [`block_stats()`], [`read()`]
+/// See also: [`read()`]
 ///
 /// # Arguments
 ///
