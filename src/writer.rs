@@ -12,6 +12,8 @@ use std::path::Path;
 const SIMPLE_BLOCK_BUF_CAPACITY: usize = 1024;
 /// Initial buffer capacity for formatting a loop block (tuned for small tables)
 const LOOP_BLOCK_BUF_CAPACITY: usize = 4096;
+/// Output representation for null values
+const NULL_OUTPUT: &str = "<NA>";
 
 /// Write data blocks to a STAR file
 pub fn write_file(data_blocks: &HashMap<String, DataBlock>, path: &Path) -> Result<()> {
@@ -54,7 +56,7 @@ fn format_simple_block(name: &str, block: &SimpleBlock) -> String {
 
     for (key, value) in block.iter() {
         // Use single write! call to minimize formatting overhead
-        write!(output, "_{}\t\t\t{}\n", key, format_value(value)).unwrap();
+        writeln!(output, "_{}\t\t\t{}", key, format_value(value)).unwrap();
     }
 
     output.push_str("\n\n");
@@ -117,7 +119,7 @@ fn format_value(value: &DataValue) -> String {
             // Format floats using ryu for consistent output
             ryu::Buffer::new().format(*f).to_string()
         }
-        DataValue::Null => "<NA>".to_string(),
+        DataValue::Null => NULL_OUTPUT.to_string(),
     }
 }
 

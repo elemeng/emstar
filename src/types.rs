@@ -202,11 +202,20 @@ impl LoopBlock {
     }
 
     /// Create a LoopBlock with the given column names (all initially empty String type)
-    /// 
+    ///
+    /// # Arguments
+    ///
+    /// * `columns` - Slice of column names to create
+    ///
+    /// # Returns
+    ///
+    /// A new LoopBlock with the specified columns (all initially empty)
+    ///
     /// # Example
+    ///
     /// ```
     /// use emstar::LoopBlock;
-    /// 
+    ///
     /// let block = LoopBlock::with_columns(&["col1", "col2", "col3"]);
     /// assert_eq!(block.column_count(), 3);
     /// ```
@@ -218,7 +227,25 @@ impl LoopBlock {
         block
     }
 
-    /// Builder method to add multiple columns at once
+    /// Builder method to add multiple columns at once (takes ownership of self)
+    ///
+    /// # Arguments
+    ///
+    /// * `columns` - Slice of column names to add
+    ///
+    /// # Returns
+    ///
+    /// Self with the columns added (for fluent chaining)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use emstar::LoopBlock;
+    ///
+    /// let block = LoopBlock::new()
+    ///     .with_columns_mut(&["col1", "col2"]);
+    /// assert_eq!(block.column_count(), 2);
+    /// ```
     pub fn with_columns_mut(mut self, columns: &[&str]) -> Self {
         for col in columns {
             self.add_column(col);
@@ -250,7 +277,23 @@ impl LoopBlock {
         self.df.width()
     }
 
-    /// Get column names as a vector of string slices (no allocations)
+    /// Get column names as a vector of string slices
+    ///
+    /// Returns a vector for convenience and to avoid lifetime issues. If you need
+    /// an iterator, use `.iter()` on the result.
+    ///
+    /// # Returns
+    ///
+    /// Vector of column name references
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let cols = block.columns();
+    /// for col in &cols {
+    ///     println!("{}", col);
+    /// }
+    /// ```
     pub fn columns(&self) -> Vec<&str> {
         self.df.get_column_names().iter().map(|s| s.as_str()).collect()
     }
@@ -371,80 +414,108 @@ impl LoopBlock {
     /// Get a value by row index and column name
     pub fn get_by_name(&self, row_idx: usize, col_name: &str) -> Option<DataValue> {
         let col = self.df.column(col_name).ok()?;
-        let dtype = col.dtype();
-        
+
         // Check bounds
         if row_idx >= col.len() {
             return None;
         }
-        
-        match dtype {
-            DataType::Float64 => {
-                let ca = col.f64().ok()?;
-                // In Polars 0.45, get() returns Option<T> where None means null
-                match ca.get(row_idx) {
-                    Some(val) => Some(DataValue::Float(val)),
-                    None => Some(DataValue::Null),
-                }
-            }
-            DataType::Int64 => {
-                let ca = col.i64().ok()?;
-                match ca.get(row_idx) {
-                    Some(val) => Some(DataValue::Integer(val)),
-                    None => Some(DataValue::Null),
-                }
-            }
-            DataType::String => {
-                let ca = col.str().ok()?;
-                match ca.get(row_idx) {
-                    Some(val) => Some(DataValue::String(val.into())),
-                    None => Some(DataValue::Null),
-                }
-            }
-            _ => {
-                // Fallback: try to convert to string
-                match col.get(row_idx) {
-                    Ok(any_val) => {
-                        if any_val.is_null() {
-                            Some(DataValue::Null)
-                        } else {
-                            Some(DataValue::String(any_val.to_string().into()))
-                        }
-                    }
-                    Err(_) => Some(DataValue::Null),
-                }
-            }
-        }
+
+        Some(column_value_at(col, row_idx))
     }
 
     /// Get a f64 value by row index and column name
-    /// Auto-converts Integer to Float if needed
+    ///
+    /// Auto-converts Integer to Float if needed. Returns None if the value is null,
+    /// the column doesn't exist, or the row index is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `row_idx` - Row index (0-based)
+    /// * `col_name` - Column name
+    ///
+    /// # Returns
+    ///
+    /// `Some(f64)` if the value exists and can be converted to float, `None` otherwise
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let x = block.get_f64(0, "rlnCoordinateX");
+    /// ```
     #[inline]
     pub fn get_f64(&self, row_idx: usize, col_name: &str) -> Option<f64> {
         self.get_by_name(row_idx, col_name)?.as_float()
     }
 
     /// Get a f64 value by row index and column name, with a default if not found
+    ///
+    /// Auto-converts Integer to Float if needed. Returns the default value if the value
+    /// is null, the column doesn't exist, or the row index is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `row_idx` - Row index (0-based)
+    /// * `col_name` - Column name
+    /// * `default` - Default value to return if value not found
+    ///
+    /// # Returns
+    ///
+    /// The f64 value or the default
     #[inline]
     pub fn get_f64_or(&self, row_idx: usize, col_name: &str, default: f64) -> f64 {
         self.get_f64(row_idx, col_name).unwrap_or(default)
     }
 
     /// Get an i64 value by row index and column name
-    /// Auto-converts Float to Integer if the value is a whole number
+    ///
+    /// Auto-converts Float to Integer if the value is a whole number. Returns None if
+    /// the value is null, the column doesn't exist, or the row index is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `row_idx` - Row index (0-based)
+    /// * `col_name` - Column name
+    ///
+    /// # Returns
+    ///
+    /// `Some(i64)` if the value exists and can be converted to integer, `None` otherwise
     #[inline]
     pub fn get_i64(&self, row_idx: usize, col_name: &str) -> Option<i64> {
         self.get_by_name(row_idx, col_name)?.as_integer()
     }
 
     /// Get an i64 value by row index and column name, with a default if not found
+    ///
+    /// Auto-converts Float to Integer if the value is a whole number. Returns the default
+    /// value if the value is null, the column doesn't exist, or the row index is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `row_idx` - Row index (0-based)
+    /// * `col_name` - Column name
+    /// * `default` - Default value to return if value not found
+    ///
+    /// # Returns
+    ///
+    /// The i64 value or the default
     #[inline]
     pub fn get_i64_or(&self, row_idx: usize, col_name: &str, default: i64) -> i64 {
         self.get_i64(row_idx, col_name).unwrap_or(default)
     }
 
     /// Get a string value by row index and column name
-    /// Returns the string representation of any value type as SmartString
+    ///
+    /// Returns the string representation of any value type as SmartString. Returns None
+    /// if the value is null, the column doesn't exist, or the row index is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `row_idx` - Row index (0-based)
+    /// * `col_name` - Column name
+    ///
+    /// # Returns
+    ///
+    /// `Some(SmartString)` if the value exists, `None` otherwise
     #[inline]
     pub fn get_string(&self, row_idx: usize, col_name: &str) -> Option<SmartString> {
         match self.get_by_name(row_idx, col_name)? {
@@ -456,6 +527,19 @@ impl LoopBlock {
     }
 
     /// Get a string value by row index and column name, with a default if not found
+    ///
+    /// Returns the string representation of any value type as SmartString. Returns the
+    /// default value if the value is null, the column doesn't exist, or the row index is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `row_idx` - Row index (0-based)
+    /// * `col_name` - Column name
+    /// * `default` - Default value to return if value not found
+    ///
+    /// # Returns
+    ///
+    /// The string value or the default
     #[inline]
     pub fn get_string_or(&self, row_idx: usize, col_name: &str, default: &str) -> SmartString {
         self.get_string(row_idx, col_name).unwrap_or_else(|| default.into())
@@ -480,12 +564,17 @@ impl LoopBlock {
     pub fn set_by_name(&mut self, row_idx: usize, col_name: &str, value: DataValue) -> Result<(), crate::Error> {
         // Check if column exists first
         if !self.has_column(col_name) {
-            return Err(crate::Error::InvalidFormat(format!("Column '{}' not found", col_name)));
+            let available_cols = self.columns();
+            return Err(crate::Error::InvalidFormat(format!(
+                "Column '{}' not found. Available columns: {:?}",
+                col_name,
+                available_cols
+            )));
         }
-        
+
         let column = self.df.column(col_name)
             .map_err(|e| crate::Error::InvalidFormat(format!("Failed to get column: {}", e)))?;
-        
+
         let new_series = data_values_to_series_with_replacement(column, row_idx, value)?;
         self.df.replace(col_name, new_series)
             .map_err(|e| crate::Error::InvalidFormat(format!("Failed to set value: {}", e)))?;
@@ -1126,17 +1215,16 @@ fn column_value_at(column: &Column, row_idx: usize) -> DataValue {
 }
 
 /// Helper function to create a new series with a single value replaced
-/// 
+///
 /// Note: This operation is O(n) where n is the column length, as it requires
 /// recreating the entire column. For batch updates, consider using Polars expressions
 /// or rebuilding the DataFrame from scratch.
 fn data_values_to_series_with_replacement(column: &Column, row_idx: usize, new_value: DataValue) -> Result<Series, crate::Error> {
-    // Convert to Series for processing
     let series = column.as_series().ok_or_else(|| crate::Error::InvalidFormat("Failed to get series from column".to_string()))?;
     let dtype = series.dtype();
     let name = series.name();
     let len = series.len();
-    
+
     // Pre-allocate with exact capacity
     match dtype {
         DataType::Float64 => {
@@ -1144,12 +1232,7 @@ fn data_values_to_series_with_replacement(column: &Column, row_idx: usize, new_v
             let mut values: Vec<Option<f64>> = Vec::with_capacity(len);
             values.extend(ca.into_iter().enumerate().map(|(i, v)| {
                 if i == row_idx {
-                    match &new_value {
-                        DataValue::Float(f) => Some(*f),
-                        DataValue::Integer(i) => Some(*i as f64),
-                        DataValue::Null => None,
-                        _ => None,
-                    }
+                    data_value_to_option_f64(&new_value)
                 } else {
                     v
                 }
@@ -1161,12 +1244,7 @@ fn data_values_to_series_with_replacement(column: &Column, row_idx: usize, new_v
             let mut values: Vec<Option<i64>> = Vec::with_capacity(len);
             values.extend(ca.into_iter().enumerate().map(|(i, v)| {
                 if i == row_idx {
-                    match &new_value {
-                        DataValue::Integer(i) => Some(*i),
-                        DataValue::Float(f) if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 => Some(*f as i64),
-                        DataValue::Null => None,
-                        _ => None,
-                    }
+                    data_value_to_option_i64(&new_value)
                 } else {
                     v
                 }
@@ -1178,12 +1256,7 @@ fn data_values_to_series_with_replacement(column: &Column, row_idx: usize, new_v
             let mut values: Vec<Option<String>> = Vec::with_capacity(len);
             values.extend(ca.into_iter().enumerate().map(|(i, v)| {
                 if i == row_idx {
-                    match &new_value {
-                        DataValue::String(s) => Some(s.to_string()),
-                        DataValue::Integer(i) => Some(i.to_string()),
-                        DataValue::Float(f) => Some(f.to_string()),
-                        DataValue::Null => None,
-                    }
+                    data_value_to_option_string(&new_value)
                 } else {
                     v.map(|s| s.to_string())
                 }
@@ -1225,44 +1298,55 @@ fn single_value_to_series(name: &str, value: &DataValue) -> Result<Series, crate
 fn value_to_series_with_dtype(name: &str, value: &DataValue, dtype: &DataType) -> Result<Series, crate::Error> {
     let series = match dtype {
         DataType::Float64 => {
-            let val: Option<f64> = match value {
-                DataValue::Float(f) => Some(*f),
-                DataValue::Integer(i) => Some(*i as f64),
-                DataValue::Null => None,
-                DataValue::String(s) => s.parse::<f64>().ok(),
-            };
+            let val = data_value_to_option_f64(value);
             Series::new(name.into(), vec![val])
         }
         DataType::Int64 => {
-            let val: Option<i64> = match value {
-                DataValue::Integer(i) => Some(*i),
-                DataValue::Float(f) => Some(*f as i64),
-                DataValue::Null => None,
-                DataValue::String(s) => s.parse::<i64>().ok(),
-            };
+            let val = data_value_to_option_i64(value);
             Series::new(name.into(), vec![val])
         }
         DataType::String => {
-            let val: Option<String> = match value {
-                DataValue::String(s) => Some(s.to_string()),
-                DataValue::Integer(i) => Some(i.to_string()),
-                DataValue::Float(f) => Some(f.to_string()),
-                DataValue::Null => None,
-            };
+            let val = data_value_to_option_string(value);
             Series::new(name.into(), vec![val])
         }
         _ => {
             // Fallback to string
-            let val: Option<String> = match value {
-                DataValue::String(s) => Some(s.to_string()),
-                DataValue::Integer(i) => Some(i.to_string()),
-                DataValue::Float(f) => Some(f.to_string()),
-                DataValue::Null => None,
-            };
+            let val = data_value_to_option_string(value);
             Series::new(name.into(), vec![val])
         }
     };
     Ok(series)
+}
+
+/// Unified helper to convert DataValue to Option<f64>
+fn data_value_to_option_f64(value: &DataValue) -> Option<f64> {
+    match value {
+        DataValue::Float(f) => Some(*f),
+        DataValue::Integer(i) => Some(*i as f64),
+        DataValue::Null => None,
+        DataValue::String(s) => s.parse::<f64>().ok(),
+    }
+}
+
+/// Unified helper to convert DataValue to Option<i64>
+fn data_value_to_option_i64(value: &DataValue) -> Option<i64> {
+    match value {
+        DataValue::Integer(i) => Some(*i),
+        DataValue::Float(f) if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 => Some(*f as i64),
+        DataValue::Float(_) => None, // Float that can't be converted to i64
+        DataValue::Null => None,
+        DataValue::String(s) => s.parse::<i64>().ok(),
+    }
+}
+
+/// Unified helper to convert DataValue to Option<String>
+fn data_value_to_option_string(value: &DataValue) -> Option<String> {
+    match value {
+        DataValue::String(s) => Some(s.to_string()),
+        DataValue::Integer(i) => Some(i.to_string()),
+        DataValue::Float(f) => Some(f.to_string()),
+        DataValue::Null => None,
+    }
 }
 
 /// Represents a data block in a STAR file

@@ -1,4 +1,28 @@
 //! STAR file parser
+//!
+//! This module provides functionality for parsing STAR (Self-defining Text Archival and Retrieval) files.
+//!
+//! # Parsing Strategy
+//!
+//! The parser uses a streaming approach to handle large files efficiently:
+//! - Reads files line-by-line using buffered I/O
+//! - Identifies data blocks by `data_` prefix
+//! - Distinguishes between SimpleBlock (key-value) and LoopBlock (tabular) patterns
+//! - Uses the `lexical` crate for fast numeric parsing
+//!
+//! # Functions
+//!
+//! - [`parse_file()`] - Parse a STAR file from disk
+//! - [`parse_reader()`] - Parse STAR content from any reader
+//!
+//! # Example
+//!
+//! ```ignore
+//! use emstar::parser::parse_file;
+//! use std::path::Path;
+//!
+//! let blocks = parse_file(Path::new("particles.star"))?;
+//! ```
 
 use crate::error::{Error, Result};
 use crate::types::{DataBlock, DataValue, LoopBlock, SimpleBlock};
@@ -8,6 +32,17 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+
+/// Null value representations in STAR files (case-insensitive)
+const NULL_REPRESENTATIONS: &[&str] = &["<NA>", "<na>", "nan", "NaN", "NAN"];
+/// Output representation for null values
+const NULL_OUTPUT: &str = "<NA>";
+
+/// Check if a string represents a null value (case-insensitive)
+fn is_null_value(s: &str) -> bool {
+    let trimmed = s.trim();
+    NULL_REPRESENTATIONS.iter().any(|&rep| trimmed.eq_ignore_ascii_case(rep))
+}
 
 /// Parse a STAR file from disk
 pub fn parse_file(path: &Path) -> Result<HashMap<String, DataBlock>> {
@@ -249,9 +284,7 @@ fn data_values_to_series(name: &str, values: &[DataValue]) -> Result<Series> {
     let has_int = values.iter().any(|v| matches!(v, DataValue::Integer(_)));
     let has_float = values.iter().any(|v| matches!(v, DataValue::Float(_)));
     let has_string = values.iter().any(|v| matches!(v, DataValue::String(_)));
-    let has_null = values.iter().any(|v| v.is_null());
 
-    // If we have both int and float, use float
     // If we have any strings, use string type
     if has_string {
         let string_values: Vec<Option<String>> = values
@@ -264,7 +297,8 @@ fn data_values_to_series(name: &str, values: &[DataValue]) -> Result<Series> {
             })
             .collect();
         Ok(Series::new(name.into(), string_values))
-    } else if has_float || (has_int && has_null) {
+    } else if has_float {
+        // If we have any floats, use float type (this will convert integers to floats)
         let float_values: Vec<Option<f64>> = values
             .iter()
             .map(|v| match v {
@@ -276,6 +310,7 @@ fn data_values_to_series(name: &str, values: &[DataValue]) -> Result<Series> {
             .collect();
         Ok(Series::new(name.into(), float_values))
     } else if has_int {
+        // If we only have integers (and possibly nulls), use integer type
         let int_values: Vec<Option<i64>> = values
             .iter()
             .map(|v| match v {
@@ -388,7 +423,7 @@ fn parse_value(s: &str) -> Result<DataValue> {
     let trimmed = s.trim();
 
     // Check for null/NA values
-    if trimmed.eq_ignore_ascii_case("<NA>") || trimmed.eq_ignore_ascii_case("nan") {
+    if is_null_value(trimmed) {
         return Ok(DataValue::Null);
     }
 

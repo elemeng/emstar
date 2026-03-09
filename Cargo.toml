@@ -54,6 +54,11 @@ name = "write"
 harness = false
 path = "benches/write.rs"
 
+[[bench]]
+name = "operations"
+harness = false
+path = "benches/operations.rs"
+
 [[bin]]
 name = "test_data"
 path = "tests/test_data.rs"

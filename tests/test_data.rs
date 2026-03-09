@@ -72,7 +72,10 @@ pub fn generate_simple_blocks() -> HashMap<String, DataBlock> {
     postprocess.set("rlnMaskDiameter", DataValue::Float(180.0));
     postprocess.set("rlnMaskEdgeWidth", DataValue::Integer(6));
     postprocess.set("rlnSolventMask", DataValue::String("mask.mrc".into()));
-    postprocess.set("rlnUnfilteredMap", DataValue::String("unfiltered.mrc".into()));
+    postprocess.set(
+        "rlnUnfilteredMap",
+        DataValue::String("unfiltered.mrc".into()),
+    );
     postprocess.set("rlnFilteredMap", DataValue::String("filtered.mrc".into()));
     postprocess.set("rlnHalfMap1", DataValue::String("half1.mrc".into()));
     postprocess.set("rlnHalfMap2", DataValue::String("half2.mrc".into()));
@@ -123,7 +126,7 @@ fn generate_particle_template(idx: usize) -> Vec<DataValue> {
     // Generate 100 unique templates that will be repeated
     // Use idx to create some variation
     let offset = idx as f64 * 10.0;
-    
+
     vec![
         DataValue::Float(1000.0 + offset % 3000.0),
         DataValue::Float(1000.0 + (offset * 1.1) % 3000.0),
@@ -172,52 +175,52 @@ pub fn generate_loop_blocks() -> HashMap<String, DataBlock> {
         }
     };
 
-    // Loop Block 1: 2,000,000 particles
-    println!("Generating loop block 1 (2,000,000 rows)...");
+    // Loop Block 1: 1,000,000 particles
+    println!("Generating loop block 1 (1,000,000 rows)...");
     let mut block1 = LoopBlock::new();
     for col in &columns {
         block1.add_column(col);
     }
-    add_repeated_rows(&mut block1, 2_000_000);
+    add_repeated_rows(&mut block1, 1_000_000);
     data.insert("particles_1".to_string(), DataBlock::Loop(block1));
-    println!("  Done: 2,000,000 rows");
+    println!("  Done: 1,000,000 rows");
 
-    // Loop Block 2: 2,000,000 particles
-    println!("Generating loop block 2 (2,000,000 rows)...");
+    // Loop Block 2: 500,000 particles
+    println!("Generating loop block 2 (500,000 rows)...");
     let mut block2 = LoopBlock::new();
     for col in &columns {
         block2.add_column(col);
     }
-    add_repeated_rows(&mut block2, 2_000_000);
+    add_repeated_rows(&mut block2, 500_000);
     data.insert("particles_2".to_string(), DataBlock::Loop(block2));
-    println!("  Done: 2,000,000 rows");
+    println!("  Done: 500,000 rows");
 
     // Loop Block 3: 1,000,000 particles
-    println!("Generating loop block 3 (1,000,000 rows)...");
+    println!("Generating loop block 3 (500,000 rows)...");
     let mut block3 = LoopBlock::new();
     for col in &columns {
         block3.add_column(col);
     }
-    add_repeated_rows(&mut block3, 1_000_000);
+    add_repeated_rows(&mut block3, 500_000);
     data.insert("particles_3".to_string(), DataBlock::Loop(block3));
-    println!("  Done: 1,000,000 rows");
+    println!("  Done: 500,000 rows");
 
-    println!("Total: 5,000,000 rows generated");
+    println!("Total: 2,000,000 rows generated");
     data
 }
 
 /// Generate complete benchmark dataset with both simple and loop blocks
 pub fn generate_benchmark_data() -> HashMap<String, DataBlock> {
     let mut data = HashMap::new();
-    
+
     // Add simple blocks
     let simple_blocks = generate_simple_blocks();
     data.extend(simple_blocks);
-    
+
     // Add loop blocks
     let loop_blocks = generate_loop_blocks();
     data.extend(loop_blocks);
-    
+
     data
 }
 
@@ -242,10 +245,10 @@ fn print_usage() {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    
+
     // Parse arguments
     let mut output_file = "benchmark.star".to_string();
-    
+
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -271,11 +274,11 @@ fn main() {
         }
         i += 1;
     }
-    
+
     println!("Generating benchmark data...");
     println!("Output file: {}", output_file);
     println!();
-    
+
     // Generate and write benchmark data
     match write_benchmark_file(&output_file) {
         Ok(()) => {
@@ -299,28 +302,28 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_generate_simple_blocks() {
         let data = generate_simple_blocks();
         assert_eq!(data.len(), 3);
-        
+
         // Verify each block is a SimpleBlock
         for (_, block) in &data {
             assert!(block.is_simple());
         }
-        
+
         // Verify block names
         assert!(data.contains_key("general"));
         assert!(data.contains_key("optimization"));
         assert!(data.contains_key("postprocess"));
-        
+
         // Verify 20 entries each
         if let Some(DataBlock::Simple(block)) = data.get("general") {
             assert_eq!(block.len(), 20);
         }
     }
-    
+
     #[test]
     fn test_generate_loop_blocks_small() {
         // Small test with only 1000 rows total
@@ -330,55 +333,55 @@ mod tests {
         for i in 0..num_templates {
             templates.push(generate_particle_template(i));
         }
-        
+
         let mut block = LoopBlock::new();
         for col in &columns {
             block.add_column(col);
         }
-        
+
         // Add 1000 rows using repeated templates
         for i in 0..1000 {
             let template_idx = i % num_templates;
             block.add_row(templates[template_idx].clone()).unwrap();
         }
-        
+
         assert_eq!(block.row_count(), 1000);
         assert_eq!(block.column_count(), 20);
-        
+
         // Verify first and last rows are different
         let first = block.get(0, 0);
         let last = block.get(999, 0);
         assert_ne!(first, last);
     }
-    
+
     #[test]
     fn test_generate_loop_blocks() {
         // For actual test, use smaller dataset to avoid long test time
         let columns = get_loop_columns();
-        
+
         // Generate small blocks for testing
         let mut block1 = LoopBlock::new();
         for col in &columns {
             block1.add_column(col);
         }
-        
+
         let templates = vec![generate_particle_template(0), generate_particle_template(1)];
         for i in 0..100 {
             block1.add_row(templates[i % 2].clone()).unwrap();
         }
-        
+
         assert_eq!(block1.row_count(), 100);
         assert_eq!(block1.column_count(), 20);
     }
-    
+
     #[test]
     fn test_generate_benchmark_data() {
         // Use small dataset for testing
         let mut data = HashMap::new();
-        
+
         // Add simple blocks
         data.extend(generate_simple_blocks());
-        
+
         // Add small loop block for testing
         let columns = get_loop_columns();
         let mut block = LoopBlock::new();
@@ -390,12 +393,12 @@ mod tests {
             block.add_row(template.clone()).unwrap();
         }
         data.insert("test_particles".to_string(), DataBlock::Loop(block));
-        
+
         assert_eq!(data.len(), 4); // 3 simple + 1 loop
-        
+
         let simple_count = data.values().filter(|b| b.is_simple()).count();
         let loop_count = data.values().filter(|b| b.is_loop()).count();
-        
+
         assert_eq!(simple_count, 3);
         assert_eq!(loop_count, 1);
     }
