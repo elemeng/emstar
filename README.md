@@ -481,6 +481,7 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | `stats()` | Get block statistics |
 | `builder()` | Create a LoopBlockBuilder (fluent API) |
 | `as_dataframe()` | Access underlying Polars DataFrame |
+| `from_dataframe(df)` | Create LoopBlock from Polars DataFrame |
 
 ### DataBlock Methods
 
