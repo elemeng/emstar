@@ -438,6 +438,10 @@ println!("Rows: {}, Cols: {}, Cells: {}", stats.n_rows, stats.n_cols, stats.n_ce
 | `write(&data, path)` | Write data to a STAR file (creates or overwrites) |
 | `to_string(&data)` | Convert data to STAR format string |
 | `list_blocks(&blocks)` | List all blocks with their names and types |
+| `merge_with_file(&blocks, path)` | Merge blocks with an existing file |
+| `validate(path)` | Validate a STAR file without loading |
+| `merge(paths, output_path)` | Merge multiple STAR files |
+| `stats_streaming(path)` | Calculate statistics without loading |
 
 For file management (delete, exists), use `std::fs` and `std::path::Path`.
 
@@ -446,32 +450,50 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | Function | Description |
 |----------|-------------|
 | `stats(path)` | Calculate statistics for a STAR file |
-| `StarStats::from_blocks(&blocks)` | Calculate statistics from in-memory data |
 
 ### SimpleBlock Methods
 
 | Method | Description |
 |--------|-------------|
+| `new()` | Create a new empty SimpleBlock |
 | `get(key)` | Read value by key |
 | `set(key, value)` | Create/Update value |
 | `remove(key)` | Delete key-value pair |
 | `contains_key(key)` | Check if key exists |
+| `contains_value(value)` | Check if value exists |
 | `keys()` | Get all keys |
+| `values()` | Get iterator over all values |
+| `iter()` | Iterate over key-value pairs |
 | `len()` | Get number of entries |
+| `is_empty()` | Check if block is empty |
 | `clear()` | Remove all entries |
+| `drain()` | Remove and return all entries |
+| `retain(f)` | Retain entries matching predicate |
+| `first_value()` | Get the first value |
+| `get_or_insert(key)` | Get value or insert Null |
 | `stats()` | Get block statistics |
 
 ### LoopBlock Methods
 
 | Method | Description |
 |--------|-------------|
+| `new()` | Create a new empty LoopBlock |
+| `with_columns(names)` | Create with specified columns |
 | `get(row, col)` | Read value at position |
 | `get_by_name(row, col_name)` | Read value by column name |
-| `get_column(name)` | Get entire column |
+| `get_f64(row, col_name)` | Get value as f64 (auto-converts) |
+| `get_i64(row, col_name)` | Get value as i64 (auto-converts) |
+| `get_string(row, col_name)` | Get value as string |
+| `get_column(name)` | Get entire column as Vec |
 | `iter_rows()` | Iterate over all rows |
+| `column_iter_f64(name)` | Iterate column as Option<f64> |
+| `column_iter_i64(name)` | Iterate column as Option<i64> |
+| `column_iter_str(name)` | Iterate column as Option<&str> |
+| `column_metadata(name)` | Get column metadata (type, len, nulls) |
 | `add_column(name)` | Add a column |
 | `add_row(values)` | Add a row |
-| `set_by_name(row, col_name, value)` | Update a cell |
+| `set(row, col, value)` | Update cell by indices |
+| `set_by_name(row, col_name, value)` | Update cell by name |
 | `remove_row(idx)` | Delete a row |
 | `remove_column(name)` | Delete a column |
 | `clear_rows()` | Remove all rows |
@@ -483,10 +505,22 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | `as_dataframe()` | Access underlying Polars DataFrame |
 | `from_dataframe(df)` | Create LoopBlock from Polars DataFrame |
 
+### LoopBlockBuilder Methods
+
+| Method | Description |
+|--------|-------------|
+| `new()` | Create a new builder |
+| `columns(names)` | Set column names |
+| `rows(data)` | Set all rows |
+| `validate()` | Validate builder state |
+| `build()` | Build the LoopBlock |
+| `build_validated()` | Build with validation |
+
 ### DataBlock Methods
 
 | Method | Description |
 |--------|-------------|
+| `block_type()` | Get type name ("SimpleBlock" or "LoopBlock") |
 | `is_simple()` | Check if block is a SimpleBlock |
 | `is_loop()` | Check if block is a LoopBlock |
 | `as_simple()` | Get SimpleBlock reference (returns Option) |
@@ -495,7 +529,6 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | `as_loop_mut()` | Get mutable LoopBlock reference |
 | `expect_simple(msg)` | Get SimpleBlock or panic with message |
 | `expect_loop(msg)` | Get LoopBlock or panic with message |
-| `block_type()` | Get type name as string |
 | `count()` | Get entry count (Simple) or row count (Loop) |
 | `stats()` | Get block statistics |
 
@@ -504,9 +537,22 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | Type | Description |
 |------|-------------|
 | `StarStats` | Comprehensive STAR file statistics |
+| `StarStats::from_blocks(&blocks)` | Create stats from in-memory blocks |
+| `StarStats::get_block_stats(name)` | Get stats for specific block |
+| `StarStats::has_loop_blocks()` | Check if file has any LoopBlocks |
+| `StarStats::has_simple_blocks()` | Check if file has any SimpleBlocks |
 | `DataBlockStats` | Block-level statistics (enum) |
 | `LoopBlockStats` | LoopBlock statistics (rows, cols, cells) |
 | `SimpleBlockStats` | SimpleBlock statistics (entries) |
+
+### Configuration Types
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `ReadOptions` | `blocks_to_read`, `skip_loop_blocks`, `skip_simple_blocks` | Options for reading STAR files |
+| `WriteOptions` | `float_precision`, `header_comment`, `exclude_blocks` | Options for writing STAR files |
+| `ValidationDetails` | `n_blocks`, `estimated_size_bytes`, `block_names`, `is_empty` | File validation results |
+| `ColumnMetadata` | `name`, `dtype`, `len`, `null_count` | Column metadata for inspection |
 
 ### DataValue Methods
 
