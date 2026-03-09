@@ -406,3 +406,43 @@ fn test_simpleblock_from_array() {
     assert_eq!(block.get("key2"), Some(&DataValue::Float(2.0)));
     assert_eq!(block.get("key3"), Some(&DataValue::String("three".into())));
 }
+
+#[test]
+fn test_merge_with_file() {
+    use emstar::merge_with_file;
+    
+    // Create initial file
+    let mut initial = HashMap::new();
+    let mut block1 = SimpleBlock::new();
+    block1.set("key1", DataValue::String("value1".into()));
+    initial.insert("block1".to_string(), DataBlock::Simple(block1));
+    
+    write(&initial, "/tmp/test_merge.star", None).unwrap();
+    
+    // Merge new blocks
+    let mut new_blocks = HashMap::new();
+    let mut block2 = SimpleBlock::new();
+    block2.set("key2", DataValue::String("value2".into()));
+    new_blocks.insert("block2".to_string(), DataBlock::Simple(block2));
+    
+    merge_with_file(&new_blocks, "/tmp/test_merge.star").unwrap();
+    
+    // Verify both blocks exist
+    let merged = read("/tmp/test_merge.star", None).unwrap();
+    assert_eq!(merged.len(), 2);
+    assert!(merged.contains_key("block1"));
+    assert!(merged.contains_key("block2"));
+    
+    // Test overwrite behavior
+    let mut overwrite_blocks = HashMap::new();
+    let mut new_block1 = SimpleBlock::new();
+    new_block1.set("key1", DataValue::String("overwritten".into()));
+    overwrite_blocks.insert("block1".to_string(), DataBlock::Simple(new_block1));
+    
+    merge_with_file(&overwrite_blocks, "/tmp/test_merge.star").unwrap();
+    
+    let final_data = read("/tmp/test_merge.star", None).unwrap();
+    if let Some(DataBlock::Simple(block)) = final_data.get("block1") {
+        assert_eq!(block.get("key1"), Some(&DataValue::String("overwritten".into())));
+    }
+}

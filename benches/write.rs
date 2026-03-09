@@ -38,7 +38,7 @@ fn bench_write_large_file(c: &mut Criterion) {
 
     c.bench_function("write_10000_rows", |b| {
         b.iter(|| {
-            write(black_box(&data_blocks), black_box("/tmp/bench_write_large.star"))
+            write(black_box(&data_blocks), black_box("/tmp/bench_write_large.star"), None)
                 .unwrap();
         })
     });
@@ -51,7 +51,7 @@ fn bench_write_medium_file(c: &mut Criterion) {
 
     c.bench_function("write_1000_rows", |b| {
         b.iter(|| {
-            write(black_box(&data_blocks), black_box("/tmp/bench_write_medium.star"))
+            write(black_box(&data_blocks), black_box("/tmp/bench_write_medium.star"), None)
                 .unwrap();
         })
     });
@@ -64,7 +64,7 @@ fn bench_write_small_file(c: &mut Criterion) {
 
     c.bench_function("write_100_rows", |b| {
         b.iter(|| {
-            write(black_box(&data_blocks), black_box("/tmp/bench_write_small.star"))
+            write(black_box(&data_blocks), black_box("/tmp/bench_write_small.star"), None)
                 .unwrap();
         })
     });

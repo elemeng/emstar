@@ -48,7 +48,15 @@ impl PartialOrd for DataValue {
             (DataValue::Null, DataValue::Null) => Some(std::cmp::Ordering::Equal),
             (DataValue::Bool(a), DataValue::Bool(b)) => a.partial_cmp(b),
             (DataValue::Integer(a), DataValue::Integer(b)) => a.partial_cmp(b),
-            (DataValue::Float(a), DataValue::Float(b)) => a.partial_cmp(b),
+            // Float comparison: treat NaN as less than all other values for consistent ordering
+            (DataValue::Float(a), DataValue::Float(b)) => {
+                match (a.is_nan(), b.is_nan()) {
+                    (true, true) => Some(std::cmp::Ordering::Equal),
+                    (true, false) => Some(std::cmp::Ordering::Less),
+                    (false, true) => Some(std::cmp::Ordering::Greater),
+                    (false, false) => a.partial_cmp(b),
+                }
+            }
             (DataValue::String(a), DataValue::String(b)) => a.partial_cmp(b),
             _ => unreachable!(),
         }
@@ -83,11 +91,20 @@ impl std::hash::Hash for DataValue {
     }
 }
 
-impl Eq for DataValue {
-    // This is a dummy implementation - Eq is not truly implemented because Float doesn't implement Eq
-    // However, we need this for use in HashMap keys, and we handle the NaN case in Hash
-    // The PartialEq implementation handles the actual comparison
-}
+/// # Equality and NaN Handling
+///
+/// **Note on Float values and NaN:** Due to IEEE 754 semantics, `NaN != NaN`, which means
+/// two `DataValue::Float(f64::NAN)` values will compare as unequal even though they
+/// contain the same bit pattern. This violates the strict substitutability requirement
+/// of `Eq` when NaN values are present.
+///
+/// For use in `HashMap` keys and similar collections:
+/// - Avoid using DataValues containing NaN as keys
+/// - If NaN values must be used as keys, be aware that `NaN != NaN` may cause unexpected behavior
+/// - Consider normalizing NaN values to a canonical representation before use as keys
+///
+/// The `PartialEq` implementation correctly handles all other cases according to IEEE 754.
+impl Eq for DataValue {}
 
 impl DataValue {
     /// Try to convert to an integer
@@ -533,7 +550,13 @@ impl std::ops::Index<&str> for SimpleBlock {
     type Output = DataValue;
 
     fn index(&self, key: &str) -> &Self::Output {
-        self.data.get(key).expect("Key not found in SimpleBlock")
+        self.data.get(key).unwrap_or_else(|| {
+            panic!(
+                "Key '{}' not found in SimpleBlock (available keys: {:?})",
+                key,
+                self.data.keys().collect::<Vec<_>>()
+            )
+        })
     }
 }
 
@@ -1010,11 +1033,26 @@ impl LoopBlock {
 
     /// Set a value by row index and column name
     /// 
-    /// # Performance Note
-    /// This operation is O(n) where n is the number of rows in the column,
+    /// # Performance Warning
+    /// This operation is **O(n)** where n is the number of rows in the column,
     /// as Polars DataFrames use immutable columnar storage. The entire column
-    /// must be recreated to change a single value. For batch updates to an
-    /// entire row, use [`Self::update_row`] which minimizes overhead.
+    /// must be recreated to change a single value.
+    /// 
+    /// **Avoid calling this in a loop** for multiple updates. Instead:
+    /// - For updating an entire row: Use [`Self::update_row`]
+    /// - For batch updates across multiple rows/columns: Collect changes and 
+    ///   rebuild the LoopBlock using the builder pattern
+    /// 
+    /// # Example
+    /// ```
+    /// use emstar::{LoopBlock, DataValue};
+    ///
+    /// let mut block = LoopBlock::with_columns(&["x", "y"]);
+    /// block.add_row(vec![DataValue::Float(1.0), DataValue::Float(2.0)]).unwrap();
+    ///
+    /// // Single update - OK
+    /// block.set_by_name(0, "x", DataValue::Float(10.0)).unwrap();
+    /// ```
     pub fn set_by_name(&mut self, row_idx: usize, col_name: &str, value: DataValue) -> Result<(), crate::Error> {
         // Check if column exists first
         if !self.has_column(col_name) {
@@ -1578,7 +1616,7 @@ impl IntoIterator for LoopBlock {
     }
 }
 
-impl<'a> IntoIterator for &'a LoopBlock {
+impl IntoIterator for &LoopBlock {
     type Item = Vec<DataValue>;
     type IntoIter = std::vec::IntoIter<Vec<DataValue>>;
 
@@ -2068,6 +2106,35 @@ pub enum DataBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_nan_ordering() {
+        // NaN should be consistently ordered (less than all other values)
+        let nan = DataValue::Float(f64::NAN);
+        let num = DataValue::Float(1.0);
+        let null = DataValue::Null;
+        
+        // NaN == NaN for ordering purposes
+        assert_eq!(nan.partial_cmp(&nan), Some(std::cmp::Ordering::Equal));
+        
+        // NaN < any number
+        assert_eq!(nan.partial_cmp(&num), Some(std::cmp::Ordering::Less));
+        assert_eq!(num.partial_cmp(&nan), Some(std::cmp::Ordering::Greater));
+        
+        // Null < NaN (Null has lowest type order)
+        assert_eq!(null.partial_cmp(&nan), Some(std::cmp::Ordering::Less));
+        assert_eq!(nan.partial_cmp(&null), Some(std::cmp::Ordering::Greater));
+    }
+
+    #[test]
+    fn test_simpleblock_index_panic_message() {
+        let block = SimpleBlock::new();
+        let result = std::panic::catch_unwind(|| {
+            let _ = &block["nonexistent_key"];
+        });
+        assert!(result.is_err());
+        // The panic message should include the key name
+    }
 
     #[test]
     fn test_data_value_conversions() {

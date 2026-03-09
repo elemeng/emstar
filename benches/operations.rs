@@ -320,7 +320,7 @@ fn create_benchmark_file(path: &str, n_rows: usize) {
     }
     data.insert("particles".to_string(), DataBlock::Loop(loop_block));
 
-    emstar::write(&data, path).unwrap();
+    emstar::write(&data, path, None).unwrap();
 }
 
 fn bench_stats(c: &mut Criterion) {

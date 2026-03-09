@@ -41,7 +41,7 @@ fn bench_parse_large_file(c: &mut Criterion) {
 
     c.bench_function("parse_10000_rows", |b| {
         b.iter(|| {
-            let data = read(black_box(path)).unwrap();
+            let data = read(black_box(path), None).unwrap();
             black_box(data);
         })
     });
@@ -53,7 +53,7 @@ fn bench_parse_medium_file(c: &mut Criterion) {
 
     c.bench_function("parse_1000_rows", |b| {
         b.iter(|| {
-            let data = read(black_box(path)).unwrap();
+            let data = read(black_box(path), None).unwrap();
             black_box(data);
         })
     });
@@ -65,7 +65,7 @@ fn bench_parse_small_file(c: &mut Criterion) {
 
     c.bench_function("parse_100_rows", |b| {
         b.iter(|| {
-            let data = read(black_box(path)).unwrap();
+            let data = read(black_box(path), None).unwrap();
             black_box(data);
         })
     });

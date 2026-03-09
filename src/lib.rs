@@ -395,15 +395,18 @@ pub struct ReadOptions {
     pub skip_simple_blocks: bool,
 }
 
-/// Append data blocks to an existing STAR file.
+/// Merge data blocks with an existing STAR file.
 ///
-/// This function reads the existing file and appends new blocks to it,
-/// preserving the original blocks. If a block with the same name exists,
+/// This function reads the existing file, merges new blocks with existing ones,
+/// and writes the combined result back. If a block with the same name exists,
 /// it will be overwritten.
+///
+/// **Note:** This operation reads the entire file into memory and rewrites it.
+/// For large files, consider using file-level append operations from the standard library.
 ///
 /// # Arguments
 ///
-/// * `new_blocks` - HashMap of new data blocks to append
+/// * `new_blocks` - HashMap of new data blocks to merge
 /// * `path` - Path to the STAR file
 ///
 /// # Errors
@@ -414,7 +417,7 @@ pub struct ReadOptions {
 /// # Example
 ///
 /// ```rust,no_run
-/// use emstar::{append, LoopBlock, DataBlock, DataValue};
+/// use emstar::{merge_with_file, LoopBlock, DataBlock, DataValue};
 /// use std::collections::HashMap;
 ///
 /// let mut new_blocks = HashMap::new();
@@ -424,16 +427,31 @@ pub struct ReadOptions {
 ///     .build()?;
 /// new_blocks.insert("new_particles".to_string(), DataBlock::Loop(particles));
 ///
-/// append(&new_blocks, "existing.star")?;
+/// merge_with_file(&new_blocks, "existing.star")?;
 /// # Ok::<(), emstar::Error>(())
 /// ```
-pub fn append<P: AsRef<Path>>(
+pub fn merge_with_file<P: AsRef<Path>>(
     new_blocks: &HashMap<String, DataBlock>,
     path: P,
 ) -> Result<()> {
     let mut existing_blocks = read(path.as_ref(), None)?;
     existing_blocks.extend(new_blocks.iter().map(|(k, v)| (k.clone(), v.clone())));
     write(&existing_blocks, path, None)
+}
+
+/// Append data blocks to an existing STAR file.
+///
+/// **DEPRECATED:** This function has been renamed to [`merge_with_file`] to better
+/// reflect its behavior. It reads the entire file, merges in memory, and rewrites.
+/// This is not a true append operation.
+///
+/// Use [`merge_with_file`] instead.
+#[deprecated(since = "0.2.0", note = "Use merge_with_file() instead")]
+pub fn append<P: AsRef<Path>>(
+    new_blocks: &HashMap<String, DataBlock>,
+    path: P,
+) -> Result<()> {
+    merge_with_file(new_blocks, path)
 }
 
 /// Write data blocks to a STAR file.
@@ -462,7 +480,7 @@ pub fn append<P: AsRef<Path>>(
 /// let mut data = HashMap::new();
 /// let mut particles = LoopBlock::new();
 /// particles.add_column("rlnCoordinateX");
-/// particles.add_row(vec![DataValue::Float(100.0)]).unwrap();
+/// particles.add_row(vec![DataValue::Float(100.0)])?;
 /// data.insert("particles".to_string(), DataBlock::Loop(particles));
 ///
 /// // Write with default options
@@ -484,11 +502,16 @@ pub fn write<P: AsRef<Path>>(
 ) -> Result<()> {
     let opts = options.unwrap_or_default();
 
-    // Filter out excluded blocks
-    let mut filtered_blocks = data_blocks.clone();
-    if let Some(ref exclude) = opts.exclude_blocks {
-        filtered_blocks.retain(|name, _| !exclude.contains(name));
-    }
+    // Filter out excluded blocks without cloning
+    let filtered_blocks: HashMap<String, DataBlock> = if let Some(ref exclude) = opts.exclude_blocks {
+        data_blocks
+            .iter()
+            .filter(|(name, _)| !exclude.contains(*name))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    } else {
+        data_blocks.clone()
+    };
 
     writer::write_file(&filtered_blocks, path.as_ref(), opts)
 }

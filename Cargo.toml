@@ -59,10 +59,6 @@ name = "operations"
 harness = false
 path = "benches/operations.rs"
 
-[[bin]]
-name = "test_data"
-path = "tests/test_data.rs"
-
 [profile.release]
 opt-level = 3
 lto = "fat"

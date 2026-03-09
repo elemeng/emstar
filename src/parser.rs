@@ -35,8 +35,11 @@ use std::path::Path;
 
 /// Null value representations in STAR files (case-insensitive)
 const NULL_REPRESENTATIONS: &[&str] = &["<NA>", "<na>", "nan", "NaN", "NAN"];
-/// Output representation for null values
-const NULL_OUTPUT: &str = "<NA>";
+
+/// Maximum number of columns allowed in a loop block (prevents memory exhaustion)
+const MAX_COLUMNS: usize = 10_000;
+/// Maximum line length allowed (prevents memory exhaustion from malformed input)
+const MAX_LINE_LENGTH: usize = 10_000_000; // 10MB
 
 /// Check if a string represents a null value (case-insensitive)
 fn is_null_value(s: &str) -> bool {
@@ -65,6 +68,19 @@ pub(crate) fn parse_reader<R: BufRead>(reader: R) -> Result<HashMap<String, Data
             line: line_num + 1,
             message: format!("Failed to read line: {}", e),
         })?;
+
+        // Validate line length to prevent memory exhaustion
+        if line.len() > MAX_LINE_LENGTH {
+            return Err(Error::Parse {
+                line: line_num + 1,
+                message: format!(
+                    "Line exceeds maximum length of {} bytes (got {} bytes). \
+                     This may indicate a malformed file.",
+                    MAX_LINE_LENGTH,
+                    line.len()
+                ),
+            });
+        }
 
         let trimmed = line.trim();
 
@@ -132,8 +148,8 @@ fn parse_simple_block<R: BufRead>(
 ) -> Result<DataBlock> {
     let mut block = SimpleBlock::new();
 
-    // Process first line
-    parse_simple_line(&first_line, &mut block)?;
+    // Process first line (line number passed as _start_line)
+    parse_simple_line(&first_line, &mut block, _start_line)?;
 
     // Process remaining lines
     for (line_num, line_result) in lines.by_ref() {
@@ -151,7 +167,7 @@ fn parse_simple_block<R: BufRead>(
 
         // Parse line
         if trimmed.starts_with('_') {
-            parse_simple_line(trimmed, &mut block)?;
+            parse_simple_line(trimmed, &mut block, line_num + 1)?;
         }
     }
 
@@ -159,11 +175,11 @@ fn parse_simple_block<R: BufRead>(
 }
 
 /// Parse a single simple block line
-fn parse_simple_line(line: &str, block: &mut SimpleBlock) -> Result<()> {
+fn parse_simple_line(line: &str, block: &mut SimpleBlock, line_num: usize) -> Result<()> {
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.len() < 2 {
         return Err(Error::Parse {
-            line: 0,
+            line: line_num,
             message: format!("Invalid simple block line: '{}'", line),
         });
     }
@@ -214,6 +230,18 @@ fn parse_loop_block<R: BufRead>(
         let name = column_name[1..].trim();
         column_names.push(name.to_string());
         column_data.push(Vec::new());
+
+        // Validate column count to prevent memory exhaustion
+        if column_names.len() > MAX_COLUMNS {
+            return Err(Error::Parse {
+                line: line_num + 1,
+                message: format!(
+                    "Loop block has too many columns ({}). Maximum allowed is {}.",
+                    column_names.len(),
+                    MAX_COLUMNS
+                ),
+            });
+        }
     }
 
     if column_names.is_empty() {
@@ -226,10 +254,10 @@ fn parse_loop_block<R: BufRead>(
     let ncols = column_names.len();
 
     // Process the first data line if we saved it
-    if let Some((_line_num, line)) = first_data_line {
+    if let Some((line_num, line)) = first_data_line {
         let trimmed = line.trim();
         if !trimmed.is_empty() && !trimmed.starts_with("data_") {
-            let row = parse_row(trimmed, ncols)?;
+            let row = parse_row(trimmed, ncols, line_num + 1)?;
             for (col_idx, value) in row.into_iter().enumerate() {
                 column_data[col_idx].push(value);
             }
@@ -251,7 +279,7 @@ fn parse_loop_block<R: BufRead>(
         }
 
         // Parse row
-        let row = parse_row(trimmed, ncols)?;
+        let row = parse_row(trimmed, ncols, line_num + 1)?;
         for (col_idx, value) in row.into_iter().enumerate() {
             column_data[col_idx].push(value);
         }
@@ -349,12 +377,12 @@ fn data_values_to_series(name: &str, values: &[DataValue]) -> Result<Series> {
 }
 
 /// Parse a single data row with proper handling of quoted strings
-fn parse_row(line: &str, expected_cols: usize) -> Result<Vec<DataValue>> {
-    let values = parse_star_values(line)?;
+fn parse_row(line: &str, expected_cols: usize, line_num: usize) -> Result<Vec<DataValue>> {
+    let values = parse_star_values(line, line_num)?;
 
     if values.len() != expected_cols {
         return Err(Error::Parse {
-            line: 0,
+            line: line_num,
             message: format!(
                 "Expected {} columns, found {} in row: '{}'",
                 expected_cols,
@@ -375,7 +403,7 @@ fn parse_row(line: &str, expected_cols: usize) -> Result<Vec<DataValue>> {
 /// Parse STAR file values respecting quoted strings
 /// STAR files can have values enclosed in single or double quotes
 /// Values are separated by whitespace, but whitespace inside quotes is preserved
-fn parse_star_values(line: &str) -> Result<Vec<String>> {
+fn parse_star_values(line: &str, line_num: usize) -> Result<Vec<String>> {
     let mut values = Vec::new();
     let mut current = String::new();
     let mut in_quote = None::<char>; // None, Some('"'), or Some('\'')
@@ -429,6 +457,14 @@ fn parse_star_values(line: &str) -> Result<Vec<String>> {
     if !current.is_empty() {
         values.push(current);
     }
+    
+    // Check for unclosed quote
+    if let Some(quote_char) = in_quote {
+        return Err(Error::Parse {
+            line: line_num,
+            message: format!("Unclosed quote (looking for '{}') in line: '{}'", quote_char, line),
+        });
+    }
 
     Ok(values)
 }
@@ -456,12 +492,41 @@ fn parse_value(s: &str) -> Result<DataValue> {
 
     // Try to parse as float
     if let Ok(f) = lexical::parse::<f64, _>(trimmed) {
+        // Reject infinity values
+        if f.is_infinite() {
+            return Err(Error::InvalidDataValue(
+                format!("Infinity values are not supported: '{}'", trimmed)
+            ));
+        }
         return Ok(DataValue::Float(f));
     }
 
-    // String value
-    let unquoted = trimmed.trim_matches('"').trim_matches('\'');
+    // String value - only remove surrounding quotes if they match
+    let unquoted = remove_matching_quotes(trimmed);
     Ok(DataValue::String(unquoted.into()))
+}
+
+/// Remove matching surrounding quotes from a string
+/// Only removes quotes if they form a valid pair at the start and end
+fn remove_matching_quotes(s: &str) -> &str {
+    if s.len() < 2 {
+        return s;
+    }
+    
+    let first = s.chars().next().unwrap();
+    let last = s.chars().last().unwrap();
+    
+    // Only remove if both ends have the same quote type
+    if (first == '"' || first == '\'') && first == last {
+        // Check if the quotes are actually surrounding (not escaped/internal)
+        let inner = &s[1..s.len()-1];
+        // Only remove if there are no unescaped quotes inside
+        if !inner.chars().any(|c| c == first) {
+            return inner;
+        }
+    }
+    
+    s
 }
 
 /// Validate a STAR file without loading all data into memory
@@ -473,12 +538,12 @@ pub fn validate_file(path: &Path) -> Result<crate::ValidationDetails> {
     let file = File::open(path)?;
     let file_size = file.metadata()?.len();
     let reader = BufReader::new(file);
-    let mut lines = reader.lines().enumerate();
+    let lines = reader.lines().enumerate();
 
     let mut block_names = Vec::new();
     let mut n_blocks = 0;
 
-    while let Some((line_num, line_result)) = lines.next() {
+    for (line_num, line_result) in lines {
         let line = line_result.map_err(|e| Error::Parse {
             line: line_num + 1,
             message: format!("Failed to read line: {}", e),
@@ -510,7 +575,7 @@ pub fn parse_stats_streaming(path: &Path) -> Result<crate::StarStats> {
 
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let mut lines = reader.lines().enumerate();
+    let lines = reader.lines().enumerate();
 
     let mut n_simple_blocks = 0;
     let mut n_loop_blocks = 0;
@@ -521,7 +586,7 @@ pub fn parse_stats_streaming(path: &Path) -> Result<crate::StarStats> {
 
     let mut in_loop = false;
 
-    while let Some((line_num, line_result)) = lines.next() {
+    for (line_num, line_result) in lines {
         let line = line_result.map_err(|e| Error::Parse {
             line: line_num + 1,
             message: format!("Failed to read line: {}", e),
@@ -583,6 +648,45 @@ pub fn parse_stats_streaming(path: &Path) -> Result<crate::StarStats> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn test_infinity_rejected() {
+        // Infinity should be rejected
+        assert!(parse_value("inf").is_err());
+        assert!(parse_value("-inf").is_err());
+        assert!(parse_value("infinity").is_err());
+        assert!(parse_value("Infinity").is_err());
+        assert!(parse_value("-Infinity").is_err());
+    }
+
+    #[test]
+    fn test_unclosed_quote_error() {
+        let input = r#"data_test
+loop_
+_col1
+"unclosed value
+"#;
+        let reader = Cursor::new(input);
+        let result = parse_reader(reader);
+        assert!(result.is_err());
+        // Check that error mentions unclosed quote
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Unclosed quote"), "Error should mention unclosed quote: {}", err_msg);
+    }
+
+    #[test]
+    fn test_quote_parsing() {
+        // Test proper quote removal
+        assert_eq!(remove_matching_quotes("\"hello\""), "hello");
+        assert_eq!(remove_matching_quotes("'hello'"), "hello");
+        // Test quotes not removed when mismatched
+        assert_eq!(remove_matching_quotes("\"hello'"), "\"hello'");
+        assert_eq!(remove_matching_quotes("'hello\""), "'hello\"");
+        // Test quotes not removed when empty
+        assert_eq!(remove_matching_quotes("\"\""), "");
+        // Test quotes not removed when internal quotes exist
+        assert_eq!(remove_matching_quotes("\"he\"llo\""), "\"he\"llo\"");
+    }
 
     #[test]
     fn test_parse_simple_block() {
