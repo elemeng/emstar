@@ -227,7 +227,7 @@ pub fn generate_benchmark_data() -> HashMap<String, DataBlock> {
 /// Write benchmark data to a STAR file
 pub fn write_benchmark_file(path: &str) -> Result<(), emstar::Error> {
     let data = generate_benchmark_data();
-    emstar::write(&data, path)
+    emstar::write(&data, path, None)
 }
 
 fn print_usage() {

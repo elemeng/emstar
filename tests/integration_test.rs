@@ -19,10 +19,10 @@ fn test_read_write_round_trip_simple() {
     data_blocks.insert("test".to_string(), DataBlock::Simple(block));
 
     // Write to file
-    write(&data_blocks, "/tmp/test_simple.star").unwrap();
+    write(&data_blocks, "/tmp/test_simple.star", None).unwrap();
 
     // Read back
-    let parsed = read("/tmp/test_simple.star").unwrap();
+    let parsed = read("/tmp/test_simple.star", None).unwrap();
 
     assert_eq!(parsed.len(), 1);
     let parsed_block = parsed.get("test").unwrap();
@@ -70,10 +70,10 @@ fn test_read_write_round_trip_loop() {
     data_blocks.insert("particles".to_string(), DataBlock::Loop(block));
 
     // Write to file
-    write(&data_blocks, "/tmp/test_loop.star").unwrap();
+    write(&data_blocks, "/tmp/test_loop.star", None).unwrap();
 
     // Read back
-    let parsed = read("/tmp/test_loop.star").unwrap();
+    let parsed = read("/tmp/test_loop.star", None).unwrap();
 
     assert_eq!(parsed.len(), 1);
     let parsed_block = parsed.get("particles").unwrap();
@@ -109,10 +109,10 @@ fn test_multiple_blocks() {
     data_blocks.insert("loop".to_string(), DataBlock::Loop(loop_block));
 
     // Write to file
-    write(&data_blocks, "/tmp/test_multi.star").unwrap();
+    write(&data_blocks, "/tmp/test_multi.star", None).unwrap();
 
     // Read back
-    let parsed = read("/tmp/test_multi.star").unwrap();
+    let parsed = read("/tmp/test_multi.star", None).unwrap();
 
     assert_eq!(parsed.len(), 2);
     assert!(parsed.contains_key("simple"));
@@ -132,8 +132,8 @@ fn test_null_values() {
     let mut data_blocks = HashMap::new();
     data_blocks.insert("test".to_string(), DataBlock::Loop(block));
 
-    write(&data_blocks, "/tmp/test_null.star").unwrap();
-    let parsed = read("/tmp/test_null.star").unwrap();
+    write(&data_blocks, "/tmp/test_null.star", None).unwrap();
+    let parsed = read("/tmp/test_null.star", None).unwrap();
 
     let parsed_block = parsed.get("test").unwrap();
     if let DataBlock::Loop(parsed_loop) = parsed_block {
@@ -149,8 +149,8 @@ fn test_string_with_spaces() {
     let mut data_blocks = HashMap::new();
     data_blocks.insert("test".to_string(), DataBlock::Simple(block));
 
-    write(&data_blocks, "/tmp/test_spaces.star").unwrap();
-    let parsed = read("/tmp/test_spaces.star").unwrap();
+    write(&data_blocks, "/tmp/test_spaces.star", None).unwrap();
+    let parsed = read("/tmp/test_spaces.star", None).unwrap();
 
     let parsed_block = parsed.get("test").unwrap();
     if let DataBlock::Simple(parsed_simple) = parsed_block {
@@ -228,13 +228,13 @@ fn test_file_level_write_create() {
     data.insert("test".to_string(), DataBlock::Simple(simple));
 
     // Write file (creates if not exists)
-    write(&data, "/tmp/test_write.star").unwrap();
+    write(&data, "/tmp/test_write.star", None).unwrap();
 
     // Verify it exists using standard library
     assert!(Path::new("/tmp/test_write.star").exists());
 
     // Read and verify
-    let parsed = read("/tmp/test_write.star").unwrap();
+    let parsed = read("/tmp/test_write.star", None).unwrap();
     assert_eq!(parsed.len(), 1);
 }
 
@@ -246,10 +246,10 @@ fn test_file_level_read() {
     simple.set("key", DataValue::Integer(42));
     data.insert("test".to_string(), DataBlock::Simple(simple));
 
-    write(&data, "/tmp/test_read.star").unwrap();
+    write(&data, "/tmp/test_read.star", None).unwrap();
 
     // Use read()
-    let parsed = read("/tmp/test_read.star").unwrap();
+    let parsed = read("/tmp/test_read.star", None).unwrap();
     assert_eq!(parsed.len(), 1);
 }
 
@@ -261,7 +261,7 @@ fn test_file_level_write_update() {
     simple.set("original", DataValue::String("value".into()));
     data.insert("test".to_string(), DataBlock::Simple(simple));
 
-    write(&data, "/tmp/test_write_update.star").unwrap();
+    write(&data, "/tmp/test_write_update.star", None).unwrap();
 
     // Update with new data using write()
     let mut new_data = HashMap::new();
@@ -269,10 +269,10 @@ fn test_file_level_write_update() {
     new_simple.set("updated", DataValue::Integer(100));
     new_data.insert("test".to_string(), DataBlock::Simple(new_simple));
 
-    write(&new_data, "/tmp/test_write_update.star").unwrap();
+    write(&new_data, "/tmp/test_write_update.star", None).unwrap();
 
     // Verify update
-    let parsed = read("/tmp/test_write_update.star").unwrap();
+    let parsed = read("/tmp/test_write_update.star", None).unwrap();
     if let Some(DataBlock::Simple(block)) = parsed.get("test") {
         assert_eq!(block.get("updated"), Some(&DataValue::Integer(100)));
         assert_eq!(block.get("original"), None); // Original key should be gone
@@ -284,7 +284,7 @@ fn test_file_level_delete() {
     // Create a file
     let mut data = HashMap::new();
     data.insert("test".to_string(), DataBlock::Simple(SimpleBlock::new()));
-    write(&data, "/tmp/test_delete.star").unwrap();
+    write(&data, "/tmp/test_delete.star", None).unwrap();
 
     assert!(Path::new("/tmp/test_delete.star").exists());
 
@@ -324,7 +324,7 @@ fn test_stats_api() {
     data.insert("loop1".to_string(), DataBlock::Loop(loop1));
     data.insert("loop2".to_string(), DataBlock::Loop(loop2));
 
-    write(&data, "/tmp/test_stats.star").unwrap();
+    write(&data, "/tmp/test_stats.star", None).unwrap();
 
     // Get stats
     let file_stats = stats("/tmp/test_stats.star").unwrap();

@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     data_blocks.insert("particles".to_string(), DataBlock::Loop(particles));
 
     // Write to file (creates or overwrites)
-    write(&data_blocks, file_path)?;
+    write(&data_blocks, file_path, None)?;
     println!("   ✓ Created STAR file with general metadata and {} particles\n", 3);
 
     // =========================================================================
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // =========================================================================
     println!("2. READ: Reading data from STAR file...");
     
-    let data_blocks = read(file_path)?;
+    let data_blocks = read(file_path, None)?;
     
     // Read SimpleBlock
     if let Some(DataBlock::Simple(general)) = data_blocks.get("general") {
@@ -115,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // =========================================================================
     println!("3. UPDATE: Modifying data...");
     
-    let mut data_blocks = read(file_path)?;
+    let mut data_blocks = read(file_path, None)?;
     
     // Update SimpleBlock
     if let Some(DataBlock::Simple(general)) = data_blocks.get_mut("general") {
@@ -152,11 +152,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     // Save updated data
-    write(&data_blocks, file_path)?;
+    write(&data_blocks, file_path, None)?;
     println!("   ✓ Saved changes to file\n");
 
     // Verify updates
-    let data_blocks = read(file_path)?;
+    let data_blocks = read(file_path, None)?;
     if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
         println!("   Verification after updates:");
         println!("     - Total particles: {}", particles.row_count());
@@ -169,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // =========================================================================
     println!("4. DELETE: Removing data from blocks...");
     
-    let mut data_blocks = read(file_path)?;
+    let mut data_blocks = read(file_path, None)?;
     
     if let Some(DataBlock::Simple(general)) = data_blocks.get_mut("general") {
         // Remove a key from SimpleBlock
@@ -187,11 +187,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // println!("   ✓ Removed rlnAnglePsi column");
     }
     
-    write(&data_blocks, file_path)?;
+    write(&data_blocks, file_path, None)?;
     println!("   ✓ Saved changes\n");
 
     // Verify deletions
-    let data_blocks = read(file_path)?;
+    let data_blocks = read(file_path, None)?;
     if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
         println!("   Verification after deletions:");
         println!("     - Total particles: {}", particles.row_count());
@@ -209,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     // Check column existence
-    let data_blocks = read(file_path)?;
+    let data_blocks = read(file_path, None)?;
     if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
         println!("   ✓ Has 'rlnCoordinateX' column: {}", particles.has_column("rlnCoordinateX"));
         println!("   ✓ Has 'rlnNonExistent' column: {}", particles.has_column("rlnNonExistent"));

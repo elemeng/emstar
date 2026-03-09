@@ -284,6 +284,7 @@ fn data_values_to_series(name: &str, values: &[DataValue]) -> Result<Series> {
     let has_int = values.iter().any(|v| matches!(v, DataValue::Integer(_)));
     let has_float = values.iter().any(|v| matches!(v, DataValue::Float(_)));
     let has_string = values.iter().any(|v| matches!(v, DataValue::String(_)));
+    let has_bool = values.iter().any(|v| matches!(v, DataValue::Bool(_)));
 
     // If we have any strings, use string type
     if has_string {
@@ -293,28 +294,42 @@ fn data_values_to_series(name: &str, values: &[DataValue]) -> Result<Series> {
                 DataValue::String(s) => Some(s.as_str().to_string()),
                 DataValue::Integer(i) => Some(i.to_string()),
                 DataValue::Float(f) => Some(f.to_string()),
+                DataValue::Bool(b) => Some(b.to_string()),
                 DataValue::Null => None,
             })
             .collect();
         Ok(Series::new(name.into(), string_values))
     } else if has_float {
-        // If we have any floats, use float type (this will convert integers to floats)
+        // If we have any floats, use float type (this will convert integers and bools to floats)
         let float_values: Vec<Option<f64>> = values
             .iter()
             .map(|v| match v {
                 DataValue::Float(f) => Some(*f),
                 DataValue::Integer(i) => Some(*i as f64),
+                DataValue::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
                 DataValue::Null => None,
                 DataValue::String(_) => None,
             })
             .collect();
         Ok(Series::new(name.into(), float_values))
     } else if has_int {
-        // If we only have integers (and possibly nulls), use integer type
+        // If we only have integers (and possibly nulls/bools), use integer type
         let int_values: Vec<Option<i64>> = values
             .iter()
             .map(|v| match v {
                 DataValue::Integer(i) => Some(*i),
+                DataValue::Bool(b) => Some(if *b { 1 } else { 0 }),
+                DataValue::Null => None,
+                _ => None,
+            })
+            .collect();
+        Ok(Series::new(name.into(), int_values))
+    } else if has_bool {
+        // If we only have bools (and possibly nulls), use bool type as integers (0/1)
+        let int_values: Vec<Option<i64>> = values
+            .iter()
+            .map(|v| match v {
+                DataValue::Bool(b) => Some(if *b { 1 } else { 0 }),
                 DataValue::Null => None,
                 _ => None,
             })
@@ -427,6 +442,13 @@ fn parse_value(s: &str) -> Result<DataValue> {
         return Ok(DataValue::Null);
     }
 
+    // Check for boolean values
+    match trimmed.to_lowercase().as_str() {
+        "true" | "yes" => return Ok(DataValue::Bool(true)),
+        "false" | "no" => return Ok(DataValue::Bool(false)),
+        _ => {}
+    }
+
     // Try to parse as integer
     if let Ok(i) = lexical::parse::<i64, _>(trimmed) {
         return Ok(DataValue::Integer(i));
@@ -440,6 +462,121 @@ fn parse_value(s: &str) -> Result<DataValue> {
     // String value
     let unquoted = trimmed.trim_matches('"').trim_matches('\'');
     Ok(DataValue::String(unquoted.into()))
+}
+
+/// Validate a STAR file without loading all data into memory
+pub fn validate_file(path: &Path) -> Result<crate::ValidationDetails> {
+    if !path.exists() {
+        return Err(Error::FileNotFound(path.to_path_buf()));
+    }
+
+    let file = File::open(path)?;
+    let file_size = file.metadata()?.len();
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines().enumerate();
+
+    let mut block_names = Vec::new();
+    let mut n_blocks = 0;
+
+    while let Some((line_num, line_result)) = lines.next() {
+        let line = line_result.map_err(|e| Error::Parse {
+            line: line_num + 1,
+            message: format!("Failed to read line: {}", e),
+        })?;
+
+        let trimmed = line.trim();
+
+        // Check for data block
+        if let Some(name) = trimmed.strip_prefix("data_") {
+            let block_name = name.trim().to_string();
+            block_names.push(block_name);
+            n_blocks += 1;
+        }
+    }
+
+    Ok(crate::ValidationDetails {
+        n_blocks,
+        estimated_size_bytes: file_size,
+        block_names,
+        is_empty: n_blocks == 0,
+    })
+}
+
+/// Calculate streaming statistics for a STAR file
+pub fn parse_stats_streaming(path: &Path) -> Result<crate::StarStats> {
+    if !path.exists() {
+        return Err(Error::FileNotFound(path.to_path_buf()));
+    }
+
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines().enumerate();
+
+    let mut n_simple_blocks = 0;
+    let mut n_loop_blocks = 0;
+    let mut loop_row_count = 0;
+    let mut total_loop_cols = 0;
+    let mut total_simple_entries = 0;
+    let mut block_names = Vec::new();
+
+    let mut in_loop = false;
+
+    while let Some((line_num, line_result)) = lines.next() {
+        let line = line_result.map_err(|e| Error::Parse {
+            line: line_num + 1,
+            message: format!("Failed to read line: {}", e),
+        })?;
+
+        let trimmed = line.trim();
+
+        // Skip empty lines and comments
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        // Check for data block
+        if let Some(name) = trimmed.strip_prefix("data_") {
+            block_names.push(name.trim().to_string());
+            in_loop = false;
+            continue;
+        }
+
+        // Check for loop block
+        if trimmed == "loop_" {
+            in_loop = true;
+            n_loop_blocks += 1;
+            continue;
+        }
+
+        // Count entries in simple blocks (starts with _)
+        if !in_loop && trimmed.starts_with('_') {
+            total_simple_entries += 1;
+            // Mark as simple block if we haven't already
+            if !block_names.is_empty() && n_simple_blocks + n_loop_blocks < block_names.len() {
+                n_simple_blocks += 1;
+            }
+        }
+
+        // Count rows in loop blocks
+        if in_loop && !trimmed.starts_with('_') {
+            loop_row_count += 1;
+        }
+
+        // Count columns in loop blocks
+        if in_loop && trimmed.starts_with('_') {
+            total_loop_cols += 1;
+        }
+    }
+
+    Ok(crate::StarStats {
+        n_blocks: block_names.len(),
+        n_simple_blocks,
+        n_loop_blocks,
+        total_loop_rows: loop_row_count,
+        total_loop_cols,
+        total_simple_entries,
+        block_stats: Vec::new(), // Streaming mode doesn't collect per-block stats
+    })
 }
 
 #[cfg(test)]

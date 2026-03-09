@@ -17,8 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut data = HashMap::new();
     data.insert("general".to_string(), DataBlock::Simple(simple_block));
 
-    write(&data, "example_simple.star")?;
+    write(&data, "example_simple.star", None)?;
     println!("✓ Wrote example_simple.star\n");
+
 
     // Example 2: Create and write a loop block (particle data) using Polars
     println!("Example 2: Creating a loop block with particle data using Polars");
@@ -38,12 +39,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     data.insert("particles".to_string(), DataBlock::Loop(particles));
 
-    write(&data, "example_particles.star")?;
+    write(&data, "example_particles.star", None)?;
     println!("✓ Wrote example_particles.star with {} particles\n", data["particles"].as_loop().unwrap().row_count());
 
     // Example 3: Read and modify existing data using Polars operations
     println!("Example 3: Reading and modifying data with Polars");
-    let mut read_data = read("example_particles.star")?;
+    let mut read_data = read("example_particles.star", None)?;
 
     if let Some(DataBlock::Loop(particles)) = read_data.get_mut("particles") {
         println!("✓ Read {} particles", particles.row_count());
@@ -59,12 +60,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("✓ Modified X coordinates (+10.0) using Polars\n");
     }
 
-    write(&read_data, "example_modified.star")?;
+    write(&read_data, "example_modified.star", None)?;
     println!("✓ Wrote modified data to example_modified.star\n");
 
     // Example 4: Access specific data and demonstrate Polars filtering
     println!("Example 4: Accessing specific data and Polars filtering");
-    let read_data = read("example_particles.star")?;
+    let read_data = read("example_particles.star", None)?;
 
     if let Some(DataBlock::Loop(particles)) = read_data.get("particles") {
         println!("Particle metadata:");

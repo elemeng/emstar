@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     data_blocks.insert("micrographs".to_string(), DataBlock::Loop(micrographs));
 
     // Write the file
-    write(&data_blocks, file_path)?;
+    write(&data_blocks, file_path, None)?;
     println!("✓ Created STAR file\n");
 
     // =========================================================================

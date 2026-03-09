@@ -35,7 +35,7 @@ fn test_read_all_data_files() {
         let path = format!("{}/{}", TEST_DATA_DIR, file);
         println!("Testing read: {}", path);
         
-        let result = read(&path);
+        let result = read(&path, None);
         assert!(result.is_ok(), "Failed to read {}: {:?}", file, result.err());
         
         let data = result.unwrap();
@@ -112,7 +112,7 @@ fn test_stats_api_on_all_files() {
         }
         
         // Compare with block_stats() on loaded data
-        let data = read(&path).unwrap();
+        let data = read(&path, None).unwrap();
         let mem_stats = block_stats(&data);
         assert_eq!(file_stats.n_blocks, mem_stats.n_blocks);
         assert_eq!(file_stats.total_loop_rows, mem_stats.total_loop_rows);
@@ -125,7 +125,7 @@ fn test_simple_block_crud() {
     let path = format!("{}/two_basic_blocks.star", TEST_DATA_DIR);
     println!("Testing SimpleBlock CRUD on: {}", path);
     
-    let mut data = read(&path).unwrap();
+    let mut data = read(&path, None).unwrap();
     
     // Find a SimpleBlock
     let simple_block_name = data.iter()
@@ -183,7 +183,7 @@ fn test_loop_block_crud() {
     let path = format!("{}/one_loop.star", TEST_DATA_DIR);
     println!("Testing LoopBlock CRUD on: {}", path);
     
-    let mut data = read(&path).unwrap();
+    let mut data = read(&path, None).unwrap();
     
     // Find a LoopBlock
     let loop_block_name = data.iter()
@@ -292,14 +292,14 @@ fn test_file_level_crud() {
     assert!(!Path::new(test_file).exists());
     
     // Copy source to test file using read/write
-    let data = read(&source).unwrap();
+    let data = read(&source, None).unwrap();
     
     // Test write() creates file
-    write(&data, test_file).expect("Failed to create file");
+    write(&data, test_file, None).expect("Failed to create file");
     assert!(Path::new(test_file).exists());
     
     // Test read()
-    let loaded = read(test_file).expect("Failed to read file");
+    let loaded = read(test_file, None).expect("Failed to read file");
     assert_eq!(loaded.len(), data.len());
     
     // Test write() can update file
@@ -308,9 +308,9 @@ fn test_file_level_crud() {
     new_block.set("test_key", DataValue::String("test_value".into()));
     updated_data.insert("test_block".to_string(), DataBlock::Simple(new_block));
     
-    write(&updated_data, test_file).expect("Failed to update file");
+    write(&updated_data, test_file, None).expect("Failed to update file");
     
-    let reloaded = read(test_file).unwrap();
+    let reloaded = read(test_file, None).unwrap();
     assert!(reloaded.contains_key("test_block"));
     
     // Test stats() on the file
@@ -354,14 +354,14 @@ fn test_write_read_roundtrip() {
         println!("Testing roundtrip: {} -> {}", source, temp);
         
         // Read original
-        let original = read(&source).unwrap();
+        let original = read(&source, None).unwrap();
         let original_stats = block_stats(&original);
         
         // Write to temp
-        write(&original, &temp).expect("Failed to write");
+        write(&original, &temp, None).expect("Failed to write");
         
         // Read back
-        let reloaded = read(&temp).unwrap();
+        let reloaded = read(&temp, None).unwrap();
         let reloaded_stats = block_stats(&reloaded);
         
         // Compare stats
@@ -419,7 +419,7 @@ fn test_error_handling() {
     use emstar::Error;
     
     // Test FileNotFound
-    let result = read("/nonexistent/path/file.star");
+    let result = read("/nonexistent/path/file.star", None);
     assert!(result.is_err());
     match result {
         Err(Error::FileNotFound(_)) => println!("✓ FileNotFound error caught"),
@@ -434,7 +434,7 @@ fn test_complex_file() {
     let path = format!("{}/default_pipeline.star", TEST_DATA_DIR);
     println!("Testing complex file: {}", path);
     
-    let data = read(&path).unwrap();
+    let data = read(&path, None).unwrap();
     println!("  Loaded {} data blocks", data.len());
     
     let stats = block_stats(&data);
@@ -467,7 +467,7 @@ fn test_empty_loop() {
     let path = format!("{}/empty_loop.star", TEST_DATA_DIR);
     println!("Testing empty loop file: {}", path);
     
-    let data = read(&path).unwrap();
+    let data = read(&path, None).unwrap();
     
     for (name, block) in &data {
         if let DataBlock::Loop(b) = block {
@@ -502,7 +502,7 @@ fn test_datablock_accessors() {
 
     for file in &files {
         let path = format!("{}/{}", TEST_DATA_DIR, file);
-        let mut data = read(&path).unwrap();
+        let mut data = read(&path, None).unwrap();
     
     // Test immutable accessors
     for (_, block) in &data {
@@ -551,7 +551,7 @@ fn test_to_string_conversion() {
 
     for file in &files {
         let path = format!("{}/{}", TEST_DATA_DIR, file);
-        let data = read(&path).unwrap();
+        let data = read(&path, None).unwrap();
         
         let star_string = emstar::to_string(&data);
         assert!(star_string.is_ok());
@@ -568,7 +568,7 @@ fn test_list_blocks() {
     use emstar::list_blocks;
     
     let path = format!("{}/default_pipeline.star", TEST_DATA_DIR);
-    let data = read(&path).unwrap();
+    let data = read(&path, None).unwrap();
     
     let blocks = list_blocks(&data);
     
@@ -934,7 +934,7 @@ fn test_all_apis_on_all_files() {
         assert!(Path::new(&path).exists(), "File not found: {}", file);
         
         // Test read()
-        let data = read(&path).expect(&format!("read() failed for {}", file));
+        let data = read(&path, None).expect(&format!("read() failed for {}", file));
         assert!(!data.is_empty(), "Data should not be empty for {}", file);
         
         // Test block_stats()
@@ -1150,9 +1150,9 @@ fn test_loopblock_builder_write_read_roundtrip() {
     data.insert("particles".to_string(), DataBlock::Loop(block));
 
     let test_file = "/tmp/test_builder_roundtrip.star";
-    write(&data, test_file).expect("Failed to write file");
+    write(&data, test_file, None).expect("Failed to write file");
 
-    let parsed = read(test_file).expect("Failed to read file");
+    let parsed = read(test_file, None).expect("Failed to read file");
     let parsed_block = parsed.get("particles").expect("Missing particles block");
 
     if let DataBlock::Loop(loop_block) = parsed_block {

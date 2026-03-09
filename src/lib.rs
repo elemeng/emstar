@@ -31,7 +31,7 @@
 //! use emstar::{read, write, DataBlock};
 //!
 //! // Read a STAR file
-//! let data_blocks = read("particles.star")?;
+//! let data_blocks = read("particles.star", None)?;
 //!
 //! // Access a data block
 //! if let Some(DataBlock::Loop(df)) = data_blocks.get("particles") {
@@ -40,7 +40,7 @@
 //! }
 //!
 //! // Write modified data
-//! write(&data_blocks, "output.star")?;
+//! write(&data_blocks, "output.star", None)?;
 //! # Ok::<(), emstar::Error>(())
 //! ```
 //!
@@ -71,7 +71,7 @@
 //!
 //! data.insert("particles".to_string(), DataBlock::Loop(particles));
 //!
-//! write(&data, "output.star")?;
+//! write(&data, "output.star", None)?;
 //! # Ok::<(), emstar::Error>(())
 //! ```
 //!
@@ -80,7 +80,7 @@
 //! ```rust,no_run
 //! use emstar::{read, DataBlock, DataValue};
 //!
-//! let data_blocks = read("particles.star")?;
+//! let data_blocks = read("particles.star", None)?;
 //!
 //! if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
 //!     // Get column data
@@ -118,7 +118,7 @@
 //! ```rust,no_run
 //! use emstar::{read, DataBlock};
 //!
-//! let data_blocks = read("parameters.star")?;
+//! let data_blocks = read("parameters.star", None)?;
 //!
 //! if let Some(DataBlock::Simple(params)) = data_blocks.get("general") {
 //!     // Get a value
@@ -147,7 +147,7 @@
 //! ```rust,no_run
 //! use emstar::{read, DataBlock};
 //!
-//! let data_blocks = read("particles.star")?;
+//! let data_blocks = read("particles.star", None)?;
 //!
 //! if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
 //!     // Get dimensions
@@ -224,7 +224,7 @@
 //! ```rust,no_run
 //! use emstar::{read, DataBlock, SimpleBlock, LoopBlock};
 //!
-//! let data_blocks = read("particles.star")?;
+//! let data_blocks = read("particles.star", None)?;
 //!
 //! // Using expect methods (panics with message if wrong type)
 //! if let Some(block) = data_blocks.get("general") {
@@ -261,7 +261,7 @@
 //! ```rust,no_run
 //! use emstar::{read, Error};
 //!
-//! match read("particles.star") {
+//! match read("particles.star", None) {
 //!     Ok(data) => println!("Successfully read {} blocks", data.len()),
 //!     Err(Error::FileNotFound(path)) => println!("File not found: {:?}", path),
 //!     Err(Error::Parse { line, message }) => {
@@ -327,6 +327,7 @@ use std::path::Path;
 /// # Arguments
 ///
 /// * `path` - Path to the STAR file to read
+/// * `options` - Optional read configuration
 ///
 /// # Returns
 ///
@@ -341,10 +342,18 @@ use std::path::Path;
 /// # Example
 ///
 /// ```rust,no_run
-/// use emstar::{read, DataBlock};
+/// use emstar::{read, ReadOptions, DataBlock};
 ///
-/// let data_blocks = read("particles.star")?;
+/// // Read with default options
+/// let data_blocks = read("particles.star", None)?;
 /// println!("Read {} data blocks", data_blocks.len());
+///
+/// // Read only specific blocks
+/// let options = ReadOptions {
+///     blocks_to_read: Some(vec!["particles".to_string()]),
+///     ..Default::default()
+/// };
+/// let data_blocks = read("particles.star", Some(options))?;
 ///
 /// // Access a specific block
 /// if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
@@ -352,8 +361,79 @@ use std::path::Path;
 /// }
 /// # Ok::<(), emstar::Error>(())
 /// ```
-pub fn read<P: AsRef<Path>>(path: P) -> Result<HashMap<String, DataBlock>> {
-    parser::parse_file(path.as_ref())
+pub fn read<P: AsRef<Path>>(
+    path: P,
+    options: Option<ReadOptions>,
+) -> Result<HashMap<String, DataBlock>> {
+    let opts = options.unwrap_or_default();
+    let mut blocks = parser::parse_file(path.as_ref())?;
+
+    // Filter blocks based on options
+    if let Some(ref block_names) = opts.blocks_to_read {
+        blocks.retain(|name, _| block_names.contains(name));
+    }
+
+    if opts.skip_loop_blocks {
+        blocks.retain(|_, block| block.is_simple());
+    }
+
+    if opts.skip_simple_blocks {
+        blocks.retain(|_, block| block.is_loop());
+    }
+
+    Ok(blocks)
+}
+
+/// Configuration options for reading STAR files
+#[derive(Debug, Clone, Default)]
+pub struct ReadOptions {
+    /// Read only specific blocks by name
+    pub blocks_to_read: Option<Vec<String>>,
+    /// Whether to skip loop blocks (metadata-only mode)
+    pub skip_loop_blocks: bool,
+    /// Whether to skip simple blocks (data-only mode)
+    pub skip_simple_blocks: bool,
+}
+
+/// Append data blocks to an existing STAR file.
+///
+/// This function reads the existing file and appends new blocks to it,
+/// preserving the original blocks. If a block with the same name exists,
+/// it will be overwritten.
+///
+/// # Arguments
+///
+/// * `new_blocks` - HashMap of new data blocks to append
+/// * `path` - Path to the STAR file
+///
+/// # Errors
+///
+/// Returns [`Error::FileNotFound`] if the file doesn't exist.
+/// Returns [`Error::Io`] if the file cannot be read or written.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use emstar::{append, LoopBlock, DataBlock, DataValue};
+/// use std::collections::HashMap;
+///
+/// let mut new_blocks = HashMap::new();
+/// let particles = LoopBlock::builder()
+///     .columns(&["rlnCoordinateX", "rlnCoordinateY"])
+///     .row(vec![DataValue::Float(100.0), DataValue::Float(200.0)])
+///     .build()?;
+/// new_blocks.insert("new_particles".to_string(), DataBlock::Loop(particles));
+///
+/// append(&new_blocks, "existing.star")?;
+/// # Ok::<(), emstar::Error>(())
+/// ```
+pub fn append<P: AsRef<Path>>(
+    new_blocks: &HashMap<String, DataBlock>,
+    path: P,
+) -> Result<()> {
+    let mut existing_blocks = read(path.as_ref(), None)?;
+    existing_blocks.extend(new_blocks.iter().map(|(k, v)| (k.clone(), v.clone())));
+    write(&existing_blocks, path, None)
 }
 
 /// Write data blocks to a STAR file.
@@ -367,6 +447,7 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<HashMap<String, DataBlock>> {
 ///
 /// * `data_blocks` - HashMap of data blocks to write
 /// * `path` - Path where the STAR file will be written
+/// * `options` - Optional write configuration
 ///
 /// # Errors
 ///
@@ -375,23 +456,52 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<HashMap<String, DataBlock>> {
 /// # Example
 ///
 /// ```rust
-/// use emstar::{write, LoopBlock, DataBlock};
+/// use emstar::{write, WriteOptions, LoopBlock, DataBlock, DataValue};
 /// use std::collections::HashMap;
 ///
 /// let mut data = HashMap::new();
 /// let mut particles = LoopBlock::new();
 /// particles.add_column("rlnCoordinateX");
-/// particles.add_row(vec![emstar::DataValue::Float(100.0)]).unwrap();
+/// particles.add_row(vec![DataValue::Float(100.0)]).unwrap();
 /// data.insert("particles".to_string(), DataBlock::Loop(particles));
 ///
-/// write(&data, "output.star")?;
+/// // Write with default options
+/// write(&data, "output.star", None)?;
+///
+/// // Write with custom options
+/// let options = WriteOptions {
+///     float_precision: Some(4),
+///     header_comment: Some("Generated by my pipeline".to_string()),
+///     ..Default::default()
+/// };
+/// write(&data, "output.star", Some(options))?;
 /// # Ok::<(), emstar::Error>(())
 /// ```
 pub fn write<P: AsRef<Path>>(
     data_blocks: &HashMap<String, DataBlock>,
     path: P,
+    options: Option<WriteOptions>,
 ) -> Result<()> {
-    writer::write_file(data_blocks, path.as_ref())
+    let opts = options.unwrap_or_default();
+
+    // Filter out excluded blocks
+    let mut filtered_blocks = data_blocks.clone();
+    if let Some(ref exclude) = opts.exclude_blocks {
+        filtered_blocks.retain(|name, _| !exclude.contains(name));
+    }
+
+    writer::write_file(&filtered_blocks, path.as_ref(), opts)
+}
+
+/// Configuration options for writing STAR files
+#[derive(Debug, Clone, Default)]
+pub struct WriteOptions {
+    /// Number of decimal places for float values
+    pub float_precision: Option<usize>,
+    /// Add a comment header with metadata
+    pub header_comment: Option<String>,
+    /// Blocks to exclude from writing
+    pub exclude_blocks: Option<Vec<String>>,
 }
 
 /// Convert data blocks to a STAR format string.
@@ -425,7 +535,7 @@ pub fn write<P: AsRef<Path>>(
 /// # Ok::<(), emstar::Error>(())
 /// ```
 pub fn to_string(data_blocks: &HashMap<String, DataBlock>) -> Result<String> {
-    writer::data_blocks_to_string(data_blocks)
+    writer::data_blocks_to_string(data_blocks, &crate::WriteOptions::default())
 }
 
 
@@ -464,7 +574,7 @@ pub fn to_string(data_blocks: &HashMap<String, DataBlock>) -> Result<String> {
 /// # Ok::<(), emstar::Error>(())
 /// ```
 pub fn stats<P: AsRef<Path>>(path: P) -> Result<StarStats> {
-    let blocks = read(path)?;
+    let blocks = read(path, None)?;
     Ok(StarStats::from_blocks(&blocks))
 }
 
@@ -526,4 +636,110 @@ pub fn list_blocks(blocks: &HashMap<String, DataBlock>) -> Vec<(String, &'static
         .iter()
         .map(|(name, block)| (name.clone(), block.block_type()))
         .collect()
+}
+
+/// Validation details returned by validate()
+#[derive(Debug, Clone)]
+pub struct ValidationDetails {
+    /// Number of data blocks found
+    pub n_blocks: usize,
+    /// Estimated file size in bytes
+    pub estimated_size_bytes: u64,
+    /// List of block names found
+    pub block_names: Vec<String>,
+    /// Whether the file appears to be empty
+    pub is_empty: bool,
+}
+
+/// Validate a STAR file without loading all data into memory.
+///
+/// Performs a quick validation pass to check:
+/// - File exists and is readable
+/// - Basic STAR format structure is correct
+/// - All data blocks are properly formatted
+/// - Column definitions in loop blocks are valid
+///
+/// This function is useful for pre-flight checks before processing large files.
+///
+/// # Arguments
+///
+/// * `path` - Path to the STAR file to validate
+///
+/// # Returns
+///
+/// A `Result` containing validation details or an [`Error`]
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use emstar::validate;
+///
+/// match validate("large_file.star") {
+///     Ok(details) => {
+///         println!("File is valid!");
+///         println!("  Blocks: {}", details.n_blocks);
+///         println!("  Estimated size: {}", details.estimated_size_bytes);
+///     }
+///     Err(e) => println!("Validation failed: {}", e),
+/// }
+/// # Ok::<(), emstar::Error>(())
+/// ```
+pub fn validate<P: AsRef<Path>>(path: P) -> Result<ValidationDetails> {
+    parser::validate_file(path.as_ref())
+}
+
+/// Merge multiple STAR files into a single output file.
+///
+/// Combines data blocks from multiple input files. If block names collide,
+/// blocks from later files will overwrite blocks from earlier files.
+///
+/// # Arguments
+///
+/// * `input_paths` - Iterator of paths to input STAR files
+/// * `output_path` - Path for the merged output file
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use emstar::merge;
+///
+/// merge(vec!["file1.star", "file2.star", "file3.star"], "merged.star")?;
+/// # Ok::<(), emstar::Error>(())
+/// ```
+pub fn merge<I, P>(input_paths: I, output_path: P) -> Result<()>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut merged_blocks = HashMap::new();
+
+    for path in input_paths {
+        let blocks = read(path.as_ref(), None)?;
+        merged_blocks.extend(blocks);
+    }
+
+    write(&merged_blocks, output_path, None)
+}
+
+/// Calculate streaming statistics for a STAR file without loading all data.
+///
+/// This function reads the file line-by-line and computes statistics
+/// without storing the actual data in memory. Suitable for very large files.
+///
+/// # Arguments
+///
+/// * `path` - Path to the STAR file
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use emstar::stats_streaming;
+///
+/// let stats = stats_streaming("huge_file.star")?;
+/// println!("Total blocks: {}", stats.n_blocks);
+/// println!("Total rows: {}", stats.total_loop_rows);
+/// # Ok::<(), emstar::Error>(())
+/// ```
+pub fn stats_streaming<P: AsRef<Path>>(path: P) -> Result<StarStats> {
+    parser::parse_stats_streaming(path.as_ref())
 }
