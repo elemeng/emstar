@@ -105,14 +105,23 @@ fn test_stats_api_on_all_files() {
         println!("    - Has loop blocks: {}", file_stats.has_loop_blocks());
         println!("    - Has simple blocks: {}", file_stats.has_simple_blocks());
         
+        // Load data for comparison
+        let data = read(&path, None).unwrap();
+        
         // Test get_block_stats for each block
         for (name, _) in &file_stats.block_stats {
             let block_stat = file_stats.get_block_stats(name);
-            assert!(block_stat.is_some());
+            assert!(block_stat.is_some(), "get_block_stats should return Some for existing block '{}'", name);
+            
+            // Verify the stat matches the block type
+            let block = data.get(name).expect("Block should exist in data");
+            match block_stat.unwrap() {
+                DataBlockStats::Simple(_) => assert!(block.is_simple(), "Block '{}' should be SimpleBlock", name),
+                DataBlockStats::Loop(_) => assert!(block.is_loop(), "Block '{}' should be LoopBlock", name),
+            }
         }
         
         // Compare with StarStats::from_blocks() on loaded data
-        let data = read(&path, None).unwrap();
         let mem_stats = StarStats::from_blocks(&data);
         assert_eq!(file_stats.n_blocks, mem_stats.n_blocks);
         assert_eq!(file_stats.total_loop_rows, mem_stats.total_loop_rows);
@@ -142,20 +151,24 @@ fn test_simple_block_crud() {
         
         if let Some(first_key) = keys.first() {
             let value = block.get(first_key);
-            assert!(value.is_some());
+            assert!(value.is_some(), "get() should return Some for existing key '{}'", first_key);
             println!("    get('{}'): {:?}", first_key, value);
         }
         
         // Test set() - Create/Update
-        block.set("test_new_key".into(), DataValue::Integer(42));
+        block.set("test_new_key", DataValue::Integer(42));
         println!("    set('test_new_key', 42)");
         
-        block.set("test_float".into(), DataValue::Float(3.14));
+        block.set("test_float", DataValue::Float(3.14));
         println!("    set('test_float', 3.14)");
         
         // Test contains_key()
-        assert!(block.contains_key("test_new_key"));
+        assert!(block.contains_key("test_new_key"), "contains_key should return true for newly set key");
         println!("    contains_key('test_new_key'): true");
+        
+        // Verify the values were set correctly
+        assert_eq!(block.get("test_new_key"), Some(&DataValue::Integer(42)), "Value should be Integer(42)");
+        assert_eq!(block.get("test_float"), Some(&DataValue::Float(3.14)), "Value should be Float(3.14)");
         
         // Test len()
         let len_before = block.len();
@@ -163,7 +176,8 @@ fn test_simple_block_crud() {
         
         // Test remove()
         let removed = block.remove("test_new_key");
-        assert!(removed.is_some());
+        assert!(removed.is_some(), "remove() should return Some for existing key");
+        assert_eq!(removed, Some(DataValue::Integer(42)), "Removed value should be Integer(42)");
         println!("    remove('test_new_key'): {:?}", removed);
         
         assert_eq!(block.len(), len_before - 1);
@@ -205,19 +219,20 @@ fn test_loop_block_crud() {
         
         // Test columns().contains()
         if let Some(first_col) = cols.first() {
-            assert!(block.columns().contains(&first_col));
+            assert!(block.columns().contains(&first_col), "columns() should contain '{}'", first_col);
             println!("    columns().contains('{}'): true", first_col);
             
             // Test get_column()
             let col_data = block.get_column(first_col);
-            assert!(col_data.is_some());
+            assert!(col_data.is_some(), "get_column('{}') should return Some", first_col);
             let col_data = col_data.unwrap();
+            assert_eq!(col_data.len(), original_rows, "Column should have {} values", original_rows);
             println!("    get_column('{}'): {} values", first_col, col_data.len());
             
             // Test get_by_name()
             if original_rows > 0 {
                 let value = block.get_by_name(0, first_col);
-                assert!(value.is_some());
+                assert!(value.is_some(), "get_by_name(0, '{}') should return Some", first_col);
                 println!("    get_by_name(0, '{}'): {:?}", first_col, value);
             }
         }
@@ -225,7 +240,7 @@ fn test_loop_block_crud() {
         // Test get()
         if original_rows > 0 && original_cols > 0 {
             let value = block.get(0, 0);
-            assert!(value.is_some());
+            assert!(value.is_some(), "get(0, 0) should return Some for non-empty block");
             println!("    get(0, 0): {:?}", value);
         }
         
@@ -507,11 +522,17 @@ fn test_datablock_accessors() {
     // Test immutable accessors
     for (_, block) in &data {
         if block.is_simple() {
-            assert!(block.as_simple().is_some());
-            assert!(block.as_loop().is_none());
+            let simple_ref = block.as_simple();
+            assert!(simple_ref.is_some(), "as_simple() should return Some for SimpleBlock");
+            assert!(block.as_loop().is_none(), "as_loop() should return None for SimpleBlock");
+            // Verify we can actually use the reference
+            let _ = simple_ref.unwrap().len();
         } else {
-            assert!(block.as_loop().is_some());
-            assert!(block.as_simple().is_none());
+            let loop_ref = block.as_loop();
+            assert!(loop_ref.is_some(), "as_loop() should return Some for LoopBlock");
+            assert!(block.as_simple().is_none(), "as_simple() should return None for LoopBlock");
+            // Verify we can actually use the reference
+            let _ = loop_ref.unwrap().row_count();
         }
     }
     
@@ -830,29 +851,43 @@ fn test_starstats_helper_methods() {
     let stats = StarStats::from_blocks(&blocks);
     
     // Test has_loop_blocks
-    assert!(stats.has_loop_blocks());
+    assert!(stats.has_loop_blocks(), "has_loop_blocks() should be true when LoopBlocks exist");
     
     // Test has_simple_blocks
-    assert!(stats.has_simple_blocks());
+    assert!(stats.has_simple_blocks(), "has_simple_blocks() should be true when SimpleBlocks exist");
     
     // Test get_block_stats for existing block
     let loop1_stats = stats.get_block_stats("loop1");
-    assert!(loop1_stats.is_some());
+    assert!(loop1_stats.is_some(), "get_block_stats should return Some for existing block 'loop1'");
     if let Some(DataBlockStats::Loop(l)) = loop1_stats {
-        assert_eq!(l.n_rows, 3);
-        assert_eq!(l.n_cols, 1);
+        assert_eq!(l.n_rows, 3, "loop1 should have 3 rows");
+        assert_eq!(l.n_cols, 1, "loop1 should have 1 column");
+        assert_eq!(l.n_cells, 3, "loop1 should have 3 cells");
+    } else {
+        panic!("loop1 should have LoopBlockStats, not SimpleBlockStats");
+    }
+    
+    // Test get_block_stats for simple block
+    let simple1_stats = stats.get_block_stats("simple1");
+    assert!(simple1_stats.is_some(), "get_block_stats should return Some for existing block 'simple1'");
+    if let Some(DataBlockStats::Simple(s)) = simple1_stats {
+        assert_eq!(s.n_entries, 2, "simple1 should have 2 entries");
+    } else {
+        panic!("simple1 should have SimpleBlockStats, not LoopBlockStats");
     }
     
     // Test get_block_stats for non-existent block
-    assert!(stats.get_block_stats("nonexistent").is_none());
+    assert!(stats.get_block_stats("nonexistent").is_none(), "get_block_stats should return None for non-existent block");
     
     // Test with only simple blocks
     let mut simple_only = std::collections::HashMap::new();
     simple_only.insert("s1".to_string(), DataBlock::Simple(SimpleBlock::new()));
     let simple_stats = StarStats::from_blocks(&simple_only);
     
-    assert!(!simple_stats.has_loop_blocks());
-    assert!(simple_stats.has_simple_blocks());
+    assert!(!simple_stats.has_loop_blocks(), "has_loop_blocks() should be false when no LoopBlocks exist");
+    assert!(simple_stats.has_simple_blocks(), "has_simple_blocks() should be true when SimpleBlocks exist");
+    assert_eq!(simple_stats.n_simple_blocks, 1, "Should have 1 simple block");
+    assert_eq!(simple_stats.n_loop_blocks, 0, "Should have 0 loop blocks");
 }
 
 /// Test all applicable APIs on all files
