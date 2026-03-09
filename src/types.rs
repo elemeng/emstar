@@ -1791,4 +1791,61 @@ mod tests {
         assert_eq!(block.get_by_name(0, "col1"), Some(DataValue::Integer(1)));
         assert_eq!(block.get_by_name(0, "col2"), Some(DataValue::Integer(2)));
     }
+
+    #[test]
+    fn test_data_value_as_bool() {
+        // Bool values
+        assert_eq!(DataValue::Bool(true).as_bool(), Some(true));
+        assert_eq!(DataValue::Bool(false).as_bool(), Some(false));
+        
+        // Integer to bool (0 = false, non-zero = true)
+        assert_eq!(DataValue::Integer(1).as_bool(), Some(true));
+        assert_eq!(DataValue::Integer(0).as_bool(), Some(false));
+        assert_eq!(DataValue::Integer(-5).as_bool(), Some(true));
+        
+        // String to bool
+        assert_eq!(DataValue::String("true".into()).as_bool(), Some(true));
+        assert_eq!(DataValue::String("TRUE".into()).as_bool(), Some(true));
+        assert_eq!(DataValue::String("false".into()).as_bool(), Some(false));
+        assert_eq!(DataValue::String("FALSE".into()).as_bool(), Some(false));
+        assert_eq!(DataValue::String("yes".into()).as_bool(), Some(true));
+        assert_eq!(DataValue::String("no".into()).as_bool(), Some(false));
+        assert_eq!(DataValue::String("1".into()).as_bool(), Some(true));
+        assert_eq!(DataValue::String("0".into()).as_bool(), Some(false));
+        assert_eq!(DataValue::String("invalid".into()).as_bool(), None);
+        
+        // Float cannot convert to bool
+        assert_eq!(DataValue::Float(1.0).as_bool(), None);
+        
+        // Null
+        assert_eq!(DataValue::Null.as_bool(), None);
+    }
+
+    #[test]
+    fn test_data_value_type_name() {
+        assert_eq!(DataValue::String("test".into()).type_name(), "String");
+        assert_eq!(DataValue::Integer(42).type_name(), "Integer");
+        assert_eq!(DataValue::Float(3.14).type_name(), "Float");
+        assert_eq!(DataValue::Bool(true).type_name(), "Bool");
+        assert_eq!(DataValue::Null.type_name(), "Null");
+    }
+
+    #[test]
+    fn test_loop_block_as_dataframe() {
+        let mut block = LoopBlock::new();
+        block.add_column("col1");
+        block.add_column("col2");
+        block.add_row(vec![DataValue::Integer(1), DataValue::Integer(2)]).unwrap();
+        block.add_row(vec![DataValue::Integer(3), DataValue::Integer(4)]).unwrap();
+        
+        // Get the underlying DataFrame
+        let df = block.as_dataframe();
+        
+        // Verify it has the expected structure
+        assert_eq!(df.height(), 2); // 2 rows
+        assert_eq!(df.width(), 2);  // 2 columns
+        let col_names: Vec<&str> = df.get_column_names().iter().map(|s| s.as_str()).collect();
+        assert!(col_names.contains(&"col1"));
+        assert!(col_names.contains(&"col2"));
+    }
 }
