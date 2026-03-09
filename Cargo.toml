@@ -3,7 +3,6 @@ name = "emstar"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-authors = ["emstar contributors"]
 description = "High-performance STAR file I/O library for cryo-EM workflows"
 license = "MIT"
 repository = "https://github.com/elemeng/emstar"

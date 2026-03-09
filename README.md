@@ -566,6 +566,45 @@ if let (Some(x_iter), Some(y_iter)) = (
 }
 ```
 
+### Advanced: Direct DataFrame Access
+
+For complex operations, access the underlying Polars DataFrame:
+
+```rust
+use emstar::{read, DataBlock, LoopBlock};
+use polars::prelude::*;
+
+let data_blocks = read("particles.star", None)?;
+
+if let Some(DataBlock::Loop(particles)) = data_blocks.get("particles") {
+    // Get reference to the underlying Polars DataFrame
+    let df: &DataFrame = particles.as_dataframe();
+    
+    // Use standard Polars operations
+    // Example: Filter rows
+    let mask = df.column("rlnCoordinateX")?.f64()?.gt(100.0)?;
+    let filtered = df.filter(&mask)?;
+    
+    // Example: Select columns
+    let selected = df.select(["rlnCoordinateX", "rlnCoordinateY"])?;
+    
+    // Example: Add computed column (requires clone for ownership)
+    let mut df_clone = df.clone();
+    let x = df_clone.column("rlnCoordinateX")?.f64()?;
+    let y = df_clone.column("rlnCoordinateY")?.f64()?;
+    let distance = (x.pow(2.0)? + y.pow(2.0)?)?.sqrt()?;
+    df_clone.with_column(distance.rename("rlnDistance"))?;
+    
+    // Convert back to LoopBlock
+    let modified = LoopBlock::from_dataframe(df_clone);
+}
+```
+
+**Key Points:**
+- `as_dataframe()` returns `&DataFrame` for read-only access
+- Use `.clone()` if you need ownership for modifications
+- Convert back with `LoopBlock::from_dataframe(df)`
+
 ### Benchmarks
 
 Run benchmarks:
