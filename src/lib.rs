@@ -395,7 +395,7 @@ pub struct ReadOptions {
 /// it will be overwritten.
 ///
 /// **Note:** This operation reads the entire file into memory and rewrites it.
-/// For large files, consider using file-level append operations from the standard library.
+/// For very large files, consider processing blocks separately or using streaming APIs.
 ///
 /// # Arguments
 ///

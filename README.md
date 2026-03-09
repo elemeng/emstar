@@ -281,15 +281,9 @@ use emstar::{LoopBlock, DataValue};
 // Create a LoopBlock using the builder
 let particles = LoopBlock::builder()
     .columns(&["rlnCoordinateX", "rlnCoordinateY", "rlnAnglePsi"])
-    .row(vec![
-        DataValue::Float(100.0),
-        DataValue::Float(200.0),
-        DataValue::Float(45.0),
-    ])
-    .row(vec![
-        DataValue::Float(150.0),
-        DataValue::Float(250.0),
-        DataValue::Float(90.0),
+    .rows(vec![
+        vec![DataValue::Float(100.0), DataValue::Float(200.0), DataValue::Float(45.0)],
+        vec![DataValue::Float(150.0), DataValue::Float(250.0), DataValue::Float(90.0)],
     ])
     .build()?;
 
@@ -415,7 +409,7 @@ Tabular data for loop blocks:
 // Using the builder pattern (recommended)
 let block = LoopBlock::builder()
     .columns(&["col1", "col2"])
-    .row(vec![DataValue::Integer(1), DataValue::Integer(2)])
+    .rows(vec![vec![DataValue::Integer(1), DataValue::Integer(2)]])
     .build()?;
 
 // Or using traditional methods
@@ -452,7 +446,7 @@ For file management (delete, exists), use `std::fs` and `std::path::Path`.
 | Function | Description |
 |----------|-------------|
 | `stats(path)` | Calculate statistics for a STAR file |
-| `block_stats(blocks)` | Calculate statistics from in-memory data |
+| `StarStats::from_blocks(&blocks)` | Calculate statistics from in-memory data |
 
 ### SimpleBlock Methods
 
