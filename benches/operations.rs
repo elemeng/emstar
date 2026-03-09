@@ -179,31 +179,6 @@ fn bench_loopblock_get_column(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_loopblock_update_row(c: &mut Criterion) {
-    let mut block = create_loop_block(10000, 20);
-
-    let mut group = c.benchmark_group("LoopBlock::update_row");
-
-    group.bench_function("single_update", |b| {
-        b.iter(|| {
-            let new_row = vec![DataValue::Float(999.9); 20];
-            black_box(block.update_row(5000, new_row));
-        })
-    });
-
-    group.bench_function("batch_update_100", |b| {
-        b.iter(|| {
-            for i in 0..100 {
-                let row_idx = (i * 97) % 10000;
-                let new_row = vec![DataValue::Float(i as f64); 20];
-                black_box(block.update_row(row_idx, new_row));
-            }
-        })
-    });
-
-    group.finish();
-}
-
 // ============================================================================
 // SimpleBlock Benchmarks
 // ============================================================================
@@ -363,7 +338,6 @@ criterion_group!(
     bench_loopblock_set_by_name,
     bench_loopblock_iter_rows,
     bench_loopblock_get_column,
-    bench_loopblock_update_row,
     bench_simpleblock_get,
     bench_simpleblock_set,
     bench_simpleblock_remove,
