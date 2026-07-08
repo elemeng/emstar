@@ -104,6 +104,9 @@ emstar validate file.star  # validate format
 pip install maturin
 maturin build --features python
 pip install target/wheels/emstar-*.whl
+
+# Verify
+python tests/test_python.py
 ```
 
 ## API (Rust)
