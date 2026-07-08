@@ -152,6 +152,9 @@
 pub mod error;
 pub mod star;
 
+#[cfg(feature = "python")]
+pub mod python;
+
 pub use error::{Result, StarError};
 pub use star::{
     BlockStats, DataBlock, DataValue, LoopBlock, SimpleBlock, StarFile, StarStats, parse_reader,

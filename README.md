@@ -74,6 +74,25 @@ emstar stats file.star     # block counts
 emstar validate file.star  # validate format
 ```
 
+## Python bindings
+
+```bash
+pip install maturin
+maturin build --features python
+pip install target/wheels/emstar-*.whl
+```
+
+```python
+import emstar
+
+data = emstar.read("particles.star")
+# data = {"general": {"key": val}, "particles": {"x": [1.0, 2.0], ...}}
+
+emstar.write(data, "output.star")
+s = emstar.stats("particles.star")
+emstar.validate("particles.star")
+```
+
 ## API
 
 | Type | Description |
@@ -118,6 +137,7 @@ tests/data/
 | Library | `emstar = "0.2"` | **zero** |
 | + Polars | `features = ["polars"]` | `polars` |
 | CLI | `cargo install --features cli` | `clap` |
+| Python | `maturin build --features python` | `pyo3` |
 
 ## Design
 

@@ -10,12 +10,17 @@ categories = ["science", "parser"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
+pyo3 = { version = "0.24", features = ["extension-module"], optional = true }
 polars = { version = "0.45", default-features = false, features = ["performant"], optional = true }
 
 [features]
 default = []
 cli = ["dep:clap"]
+python = ["dep:pyo3"]
 polars = ["dep:polars"]
+
+[lib]
+crate-type = ["lib", "cdylib"]
 
 [profile.release]
 opt-level = 3

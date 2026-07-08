@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::process::Command;
 
+#[cfg(feature = "cli")]
 const BINARY: &str = env!("CARGO_BIN_EXE_emstar");
 
 /// A realistic multi-block STAR file like those used in RELION.
@@ -22,6 +23,7 @@ _rlnIteration 25
 _rlnConverged Yes
 "#;
 
+#[cfg(feature = "cli")]
 fn run(args: &[&str]) -> (String, String, bool) {
     let output = Command::new(BINARY).args(args).output().expect("failed to run");
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -36,6 +38,7 @@ fn write_star(path: &str, content: &str) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "cli")]
 #[test]
 fn cli_read_shows_blocks() {
     write_star("/tmp/emstar_cli_read.star", EXAMPLE_STAR);
@@ -48,6 +51,7 @@ fn cli_read_shows_blocks() {
     assert!(out.contains("Loop"));
 }
 
+#[cfg(feature = "cli")]
 #[test]
 fn cli_stats_shows_counts() {
     write_star("/tmp/emstar_cli_stats.star", EXAMPLE_STAR);
@@ -60,6 +64,7 @@ fn cli_stats_shows_counts() {
     assert!(out.contains("Simple entries: 5"));
 }
 
+#[cfg(feature = "cli")]
 #[test]
 fn cli_validate_ok() {
     write_star("/tmp/emstar_cli_v_ok.star", EXAMPLE_STAR);
@@ -69,6 +74,7 @@ fn cli_validate_ok() {
     assert!(out.contains("3 data blocks"));
 }
 
+#[cfg(feature = "cli")]
 #[test]
 fn cli_validate_missing() {
     let (_out, err, ok) = run(&["validate", "/tmp/emstar_cli_nonexistent.star"]);
@@ -233,6 +239,8 @@ fn lib_polars_conversion() {
     assert_eq!(lb2.col_data, lb.col_data);
 }
 
+#[test]
+#[cfg(feature = "cli")]
 #[test]
 fn cli_on_real_data() {
     let files = vec![
