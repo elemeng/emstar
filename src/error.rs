@@ -1,48 +1,58 @@
-//! Error types for emstar
-
-use std::io;
+use std::fmt;
 use std::path::PathBuf;
-use thiserror::Error;
 
-/// Error type for emstar operations
-#[derive(Error, Debug)]
-pub enum Error {
-    /// I/O error
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
+pub type Result<T> = std::result::Result<T, StarError>;
 
-    /// File not found
-    #[error("File not found: {0}")]
+/// Errors that can occur during STAR file operations.
+///
+/// Three variants: I/O errors, file-not-found, and parse errors.
+///
+/// Implements `std::error::Error` and `From<std::io::Error>`.
+///
+/// ```
+/// use emstar::StarError;
+///
+/// let err = StarError::FileNotFound("/tmp/foo.star".into());
+/// assert!(err.to_string().contains("not found"));
+/// ```
+#[derive(Debug)]
+pub enum StarError {
+    /// Wraps `std::io::Error` (file read/write failures).
+    Io(std::io::Error),
+    /// The specified file path does not exist.
     FileNotFound(PathBuf),
-
-    /// Parse error
-    #[error("Parse error at line {line}: {message}")]
-    Parse { line: usize, message: String },
-
-    /// Invalid STAR file format
-    #[error("Invalid STAR file format: {0}")]
-    InvalidFormat(String),
-
-    /// Invalid data value
-    #[error("Invalid data value: {0}")]
-    InvalidDataValue(String),
-
-    /// Missing required field
-    #[error("Missing required field: {0}")]
-    MissingField(String),
-
-    /// Duplicate data block
-    #[error("Duplicate data block: {0}")]
-    DuplicateBlock(String),
-
-    /// Invalid column definition
-    #[error("Invalid column definition: {0}")]
-    InvalidColumn(String),
-
-    /// Type conversion error
-    #[error("Type conversion error: {0}")]
-    TypeConversion(String),
+    /// A syntax error was found at a specific line.
+    Parse {
+        /// 1-based line number where the error occurred.
+        line: usize,
+        /// Description of what went wrong.
+        message: String,
+    },
 }
 
-/// Result type alias for emstar operations
-pub type Result<T> = std::result::Result<T, Error>;
+impl fmt::Display for StarError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StarError::Io(e) => write!(f, "{}", e),
+            StarError::FileNotFound(p) => write!(f, "File not found: {}", p.display()),
+            StarError::Parse { line, message } => {
+                write!(f, "Parse error at line {}: {}", line, message)
+            }
+        }
+    }
+}
+
+impl std::error::Error for StarError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            StarError::Io(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for StarError {
+    fn from(e: std::io::Error) -> Self {
+        StarError::Io(e)
+    }
+}
