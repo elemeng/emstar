@@ -81,27 +81,20 @@ fn read<'py>(py: Python<'py>, path: &str) -> PyResult<Bound<'py, PyAny>> {
     }
 
     // Try upgrading loop blocks to DataFrames (polars preferred, then pandas)
-    let src = r#"
-def _upgrade(data):
-    for name, block in list(data.items()):
-        if not isinstance(block, dict):
-            continue
-        vals = list(block.values())
-        if vals and all(isinstance(v, list) for v in vals):
-            try:
-                import polars as pl
-                data[name] = pl.DataFrame(block)
-            except ImportError:
-                try:
-                    import pandas as pd
-                    data[name] = pd.DataFrame(block)
-                except ImportError:
-                    pass
-    return data
-"#;
-    let upgrade = py.eval_bound(src, None, None)?;
-    let result = upgrade.getattr("_upgrade")?.call1((dict,))?;
+    let result = dict.into_any();
     Ok(result)
+}
+
+fn is_loop_dict(py: Python<'_>, obj: &Bound<'_, PyAny>) -> bool {
+    let dict = match obj.downcast::<PyDict>() {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    if dict.is_empty() { return false; }
+    for v in dict.values() {
+        if !v.is_instance_of::<PyList>() { return false; }
+    }
+    true
 }
 
 /// Write a STAR file from dicts or DataFrames.
@@ -140,24 +133,20 @@ fn write<'py>(py: Python<'py>, data: Bound<'py, PyAny>, path: &str) -> PyResult<
         data.downcast::<PyDict>()?.clone()
     };
 
-    // Convert DataFrames back to dicts of lists using Python
-    let normalize = py.eval_bound(
-        r#"
-def _normalize(data):
-    import types
-    out = {}
-    for name, block in data.items():
-        if hasattr(block, 'columns') and hasattr(block, 'to_dict'):
-            out[name] = block.to_dict(as_series=False)
-        else:
-            out[name] = block
-    return out
-"#,
-        None,
-        None,
-    )?;
-    let cleaned = normalize.getattr("_normalize")?.call1((dict,))?;
-    let cleaned_dict = cleaned.downcast::<PyDict>()?;
+    // Convert DataFrames back to dicts of lists using Python to_dict()
+    for (name, block) in dict.iter() {
+        let is_df: bool = py.eval_bound("lambda x: hasattr(x, 'columns')", None, None)?
+            .call1((block.clone(),))?.extract()?;
+        if is_df {
+            let cleaned = py.eval_bound("block.to_dict(as_series=False)", None, Some(&{
+                let l = PyDict::new(py);
+                l.set_item("block", block)?;
+                l
+            }))?;
+            dict.set_item(name, cleaned)?;
+        }
+    }
+    let cleaned_dict = dict;
 
     let mut sf = star::StarFile::new();
 

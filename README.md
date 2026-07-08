@@ -103,10 +103,10 @@ emstar validate file.star  # validate format
 ```bash
 pip install maturin
 PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 maturin build --features python
-pip install target/wheels/emstar-*.whl
+uv pip install target/wheels/emstar-*.whl
 
 # Verify
-python tests/test_python.py
+uv run python3 tests/test_python.py
 ```
 
 ## API (Rust)
