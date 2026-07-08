@@ -5,8 +5,9 @@ edition = "2024"
 description = "Read, write, and inspect STAR files used in cryo-EM/ET (RELION)"
 license = "MIT"
 repository = "https://github.com/elemeng/emstar"
+readme = "README.md"
 keywords = ["star", "cryo-em", "relion", "starfile"]
-categories = ["science", "parser"]
+categories = ["science", "parser-implementations"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
