@@ -1,5 +1,13 @@
-# Rust
+# Rust build
 /target/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
 
 # IDEs
 .idea/
@@ -12,25 +20,9 @@
 .DS_Store
 Thumbs.db
 
-# Test output
-*.star
-/tmp/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.Python
-env/
-venv/
-.venv/
-
 # Coverage
 *.profraw
 *.profdata
 tarpaulin-report.html
 cobertura.xml
 lcov.info
-
-# Benchmark data
-/bench_*_star

@@ -148,6 +148,28 @@
 //! emstar validate file.star  # check format
 //! cargo install emstar --features cli
 //! ```
+//!
+//! ## API overview
+//!
+//! | Type | Method | Description |
+//! |------|--------|-------------|
+//! | `StarFile::new()` | — | Empty file |
+//! | `StarFile` | `.blocks` | `pub Vec<(String, DataBlock)>` |
+//! | `StarFile` | `.get(name)` | Find block by name |
+//! | `StarFile` | `.block_names()` | List all block names |
+//! | `StarFile` | `.stats()` | → `StarStats` |
+//! | `DataBlock` | `::Simple(SimpleBlock)` | Key-value metadata |
+//! | `DataBlock` | `::Loop(LoopBlock)` | Tabular data |
+//! | `SimpleBlock` | `.entries` | `pub Vec<(String, DataValue)>` |
+//! | `SimpleBlock` | `.get(key)` | Look up value |
+//! | `LoopBlock` | `.col_names` | `pub Vec<String>` |
+//! | `LoopBlock` | `.col_data` | `pub Vec<Vec<DataValue>>` |
+//! | `LoopBlock` | `.row_count()` | Number of rows |
+//! | `LoopBlock` | `.get(row, col)` | Get cell |
+//! | `read_file(path)` | — | Read STAR file |
+//! | `write_file(file, path)` | — | Write STAR file |
+//! | `to_string(file)` | — | Render as string |
+//! | `parse_reader(reader)` | — | Parse from `BufRead` |
 
 pub mod error;
 pub mod star;
