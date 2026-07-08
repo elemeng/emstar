@@ -17,7 +17,21 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
-/// Read a STAR file into a Python dict.
+/// Read a STAR file into a Python dict of blocks.
+///
+/// Simple blocks become Python dicts; loop blocks become dicts of column-name → list.
+///
+/// ```python
+/// import emstar
+/// data = emstar.read("particles.star")
+///
+/// # Optional: convert to Polars / pandas DataFrames
+/// import polars as pl
+/// df = pl.DataFrame(data["particles"])
+///
+/// # Or use the shorthand:
+/// df = emstar.to_polars(data["particles"])
+/// ```
 #[pyfunction]
 fn read(path: &str) -> PyResult<PyObject> {
     let sf = star::read_file(path.as_ref()).map_err(to_pyerr)?;
@@ -155,6 +169,34 @@ fn to_pyerr(e: StarError) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
+/// Try converting a loop block dict to a Polars DataFrame (if polars is installed).
+#[pyfunction]
+fn to_polars<'py>(py: Python<'py>, data: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    let globals = PyDict::new(py);
+    let locals = PyDict::new(py);
+    locals.set_item("data", data)?;
+    py.eval_bound(
+        "__import__('polars').DataFrame(data)",
+        Some(&globals),
+        Some(&locals),
+    )
+    .map_err(|_| PyValueError::new_err("polars is not installed"))
+}
+
+/// Try converting a loop block dict to a pandas DataFrame (if pandas is installed).
+#[pyfunction]
+fn to_pandas<'py>(py: Python<'py>, data: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    let globals = PyDict::new(py);
+    let locals = PyDict::new(py);
+    locals.set_item("data", data)?;
+    py.eval_bound(
+        "__import__('pandas').DataFrame(data)",
+        Some(&globals),
+        Some(&locals),
+    )
+    .map_err(|_| PyValueError::new_err("pandas is not installed"))
+}
+
 /// emstar — STAR file I/O for Python.
 #[pymodule]
 fn emstar(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -162,5 +204,7 @@ fn emstar(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(write, m)?)?;
     m.add_function(wrap_pyfunction!(stats, m)?)?;
     m.add_function(wrap_pyfunction!(validate, m)?)?;
+    m.add_function(wrap_pyfunction!(to_polars, m)?)?;
+    m.add_function(wrap_pyfunction!(to_pandas, m)?)?;
     Ok(())
 }
