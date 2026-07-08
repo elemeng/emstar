@@ -5,7 +5,10 @@ Read, write, and inspect [STAR files](https://www.iucr.org/__data/assets/file/00
 **I/O only** — turns bytes into structs and back.
 Data manipulation is left to your code (or Polars, pandas, NumPy, etc.).
 
-## Python
+We provide a **Rust library** (zero dependencies) and a **user-friendly Python binding** via PyO3.
+Both share the same core: fast, pure-Rust STAR file parsing, no heavy dependencies.
+
+## Python (via PyO3)
 
 ```bash
 pip install emstar
@@ -18,6 +21,9 @@ import emstar
 data = emstar.read("particles.star")
 df = data["particles"]          # polars.DataFrame | pandas.DataFrame | dict of lists
 
+# List blocks
+emstar.block_names("particles.star")  # ["general", "particles"]
+
 # Write — accepts both dicts and DataFrames
 emstar.write(data, "out.star")
 emstar.write({"x": [1.0, 2.0]}, "out.star")
@@ -27,6 +33,15 @@ emstar.stats("particles.star")
 
 # Validate
 emstar.validate("particles.star")
+```
+
+### Build from source
+
+```bash
+pip install maturin
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 maturin build --features python
+uv pip install target/wheels/emstar-*.whl
+python tests/test_python.py
 ```
 
 ## Rust library (zero dependencies)
@@ -96,17 +111,6 @@ cargo install emstar --features cli
 emstar read file.star      # list blocks
 emstar stats file.star     # block counts
 emstar validate file.star  # validate format
-```
-
-## Build from source (Python)
-
-```bash
-pip install maturin
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 maturin build --features python
-uv pip install target/wheels/emstar-*.whl
-
-# Verify
-uv run python3 tests/test_python.py
 ```
 
 ## API (Rust)
