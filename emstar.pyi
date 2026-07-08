@@ -137,3 +137,7 @@ def validate(path: str) -> None:
     >>> emstar.validate("particles.star")
     """
     ...
+
+def block_names(path: str) -> List[str]:
+    """List block names in a STAR file, in file order."""
+    ...

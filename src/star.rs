@@ -253,6 +253,11 @@ impl StarFile {
     pub fn get(&self, name: &str) -> Option<&DataBlock> {
         self.blocks.iter().find(|(n, _)| n == name).map(|(_, b)| b)
     }
+
+    /// Get all block names in file order.
+    pub fn block_names(&self) -> Vec<&str> {
+        self.blocks.iter().map(|(n, _)| n.as_str()).collect()
+    }
 }
 
 // ── Statistics ──────────────────────────────────────────────────────────────

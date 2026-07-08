@@ -266,6 +266,13 @@ fn validate(path: &str) -> PyResult<()> {
     Ok(())
 }
 
+/// List block names in a STAR file.
+#[pyfunction]
+fn block_names(path: &str) -> PyResult<Vec<String>> {
+    let sf = star::read_file(path.as_ref()).map_err(to_pyerr)?;
+    Ok(sf.block_names().into_iter().map(|s| s.to_string()).collect())
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────
 
 fn py_to_data_value(obj: &Bound<'_, PyAny>) -> DataValue {
@@ -297,5 +304,6 @@ fn emstar(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(write, m)?)?;
     m.add_function(wrap_pyfunction!(stats, m)?)?;
     m.add_function(wrap_pyfunction!(validate, m)?)?;
+    m.add_function(wrap_pyfunction!(block_names, m)?)?;
     Ok(())
 }
