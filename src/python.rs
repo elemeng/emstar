@@ -1,7 +1,23 @@
-//! Python bindings for emstar.
-#![allow(deprecated)]
+//! emstar — read, write, and inspect STAR files used in cryo-EM (RELION).
 //!
-//! Designed to be more ergonomic than the Python `starfile` package:
+//! Simple blocks → ``dict``, loop blocks → ``polars.DataFrame`` / ``pandas.DataFrame`` / ``dict`` of lists.
+//!
+//! Examples
+//! --------
+//! >>> import emstar
+//! >>> data = emstar.read("particles.star")
+//! >>> data["particles"]                     # DataFrame or dict of lists
+//! >>> emstar.write(data, "output.star")     # write back
+//! >>> emstar.stats("particles.star")        # file statistics
+//! >>> emstar.validate("particles.star")     # raise on invalid
+//!
+//! Functions
+//! ---------
+//! read      Read a STAR file into a dict of blocks.
+//! write     Write blocks to a STAR file.
+//! stats     Get file statistics.
+//! validate  Validate a STAR file.
+#![allow(deprecated)]
 //!
 //! ```python
 //! import emstar
