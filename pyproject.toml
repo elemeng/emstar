@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "emstar"
+requires-python = ">=3.8"
+description = "Read, write, and inspect STAR files used in cryo-EM (RELION)"
+readme = "README.md"
+license = { text = "MIT" }
+keywords = ["star", "cryo-em", "relion", "starfile"]
+
+[project.urls]
+Homepage = "https://github.com/elemeng/emstar"
+
+[tool.maturin]
+features = ["python"]
+module-name = "emstar"

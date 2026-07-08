@@ -1,14 +1,22 @@
-//! Python bindings for emstar via PyO3.
+//! Python bindings for emstar.
+#![allow(deprecated)]
+//!
+//! Designed to be more ergonomic than the Python `starfile` package:
 //!
 //! ```python
 //! import emstar
 //!
+//! # Auto-returns DataFrames if polars/pandas installed
 //! data = emstar.read("particles.star")
-//! # SimpleBlock → dict, LoopBlock → dict of lists
+//! df = data["particles"]          # polars/pandas DataFrame, or dict of lists
 //!
-//! emstar.stats("particles.star")      # → dict
-//! emstar.validate("particles.star")   # → None (raises on error)
-//! emstar.write(data, "out.star")      # write back
+//! # Write: accept both dicts and DataFrames
+//! emstar.write(data, "out.star")
+//! emstar.write({"x": [1,2]}, "out.star")
+//! emstar.write(df, "out.star")    # single DataFrame as root block
+//!
+//! emstar.stats("particles.star")
+//! emstar.validate("particles.star")
 //! ```
 
 use crate::error::StarError;
@@ -17,141 +25,250 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
-/// Read a STAR file into a Python dict of blocks.
+/// Read a STAR file. Returns DataFrames when polars/pandas is installed.
 ///
-/// Simple blocks become Python dicts; loop blocks become dicts of column-name → list.
+/// If neither polars nor pandas is installed, returns plain dicts of lists
+/// (zero-dependency fallback).
 ///
-/// ```python
-/// import emstar
-/// data = emstar.read("particles.star")
+/// Parameters
+/// ----------
+/// path : str
+///     Path to the .star file.
 ///
-/// # Optional: convert to Polars / pandas DataFrames
-/// import polars as pl
-/// df = pl.DataFrame(data["particles"])
+/// Returns
+/// -------
+/// dict
+///     ``{block_name: DataFrame | dict}``.
+///     Loop blocks become ``polars.DataFrame`` (preferred) or ``pandas.DataFrame``,
+///     or fall back to ``{column: [values...]}`` dicts.
 ///
-/// # Or use the shorthand:
-/// df = emstar.to_polars(data["particles"])
-/// ```
+/// Raises
+/// ------
+/// FileNotFoundError
+///     File does not exist.
+/// ValueError
+///     File is malformed.
+///
+/// Example
+/// -------
+/// >>> import emstar
+/// >>> data = emstar.read("particles.star")
+/// >>> data["particles"]  # DataFrame or dict of lists
 #[pyfunction]
-fn read(path: &str) -> PyResult<PyObject> {
+fn read<'py>(py: Python<'py>, path: &str) -> PyResult<Bound<'py, PyAny>> {
     let sf = star::read_file(path.as_ref()).map_err(to_pyerr)?;
-    Python::with_gil(|py| {
-        let dict = PyDict::new(py);
-        for (name, block) in &sf.blocks {
-            let inner = PyDict::new(py);
-            match block {
-                DataBlock::Simple(s) => {
-                    for (k, v) in s.iter() {
-                        inner.set_item(k, data_value_to_py(py, v))?;
-                    }
-                }
-                DataBlock::Loop(l) => {
-                    for (i, col) in l.col_names.iter().enumerate() {
-                        let vals: Vec<PyObject> = l.col_data[i]
-                            .iter()
-                            .map(|dv| data_value_to_py(py, dv))
-                            .collect();
-                        inner.set_item(col.as_str(), vals)?;
-                    }
+    let dict = PyDict::new(py);
+
+    for (name, block) in &sf.blocks {
+        let inner = PyDict::new(py);
+        match block {
+            DataBlock::Simple(s) => {
+                for (k, v) in s.iter() {
+                    inner.set_item(k, data_value_to_py(py, v))?;
                 }
             }
-            dict.set_item(name.as_str(), inner)?;
+            DataBlock::Loop(l) => {
+                for (i, col) in l.col_names.iter().enumerate() {
+                    let vals: Vec<PyObject> = l.col_data[i]
+                        .iter()
+                        .map(|dv| data_value_to_py(py, dv))
+                        .collect();
+                    inner.set_item(col.as_str(), vals)?;
+                }
+            }
         }
-        Ok(dict.into())
-    })
+        dict.set_item(name.as_str(), inner)?;
+    }
+
+    // Try upgrading loop blocks to DataFrames (polars preferred, then pandas)
+    let src = r#"
+def _upgrade(data):
+    for name, block in list(data.items()):
+        if not isinstance(block, dict):
+            continue
+        vals = list(block.values())
+        if vals and all(isinstance(v, list) for v in vals):
+            try:
+                import polars as pl
+                data[name] = pl.DataFrame(block)
+            except ImportError:
+                try:
+                    import pandas as pd
+                    data[name] = pd.DataFrame(block)
+                except ImportError:
+                    pass
+    return data
+"#;
+    let upgrade = py.eval_bound(src, None, None)?;
+    let result = upgrade.getattr("_upgrade")?.call1((dict,))?;
+    Ok(result)
 }
 
-/// Write a STAR file from a Python dict.
+/// Write a STAR file from dicts or DataFrames.
+///
+/// Accepts loop blocks as dicts of lists or DataFrames (polars/pandas).
+/// Simple blocks must be dicts of scalars.
+///
+/// Parameters
+/// ----------
+/// data : dict
+///     Block dict as returned by ``read()``, or ``{block: {col: [vals...]}}``,
+///     or a single ``polars.DataFrame`` / ``pandas.DataFrame``.
+/// path : str
+///     Output .star file path.
+///
+/// Raises
+/// ------
+/// ValueError
+///     Data format is invalid or file cannot be written.
+///
+/// Example
+/// -------
+/// >>> import emstar
+/// >>> emstar.write({"x": [1.0]}, "out.star")
 #[pyfunction]
-fn write(data: PyObject, path: &str) -> PyResult<()> {
-    Python::with_gil(|py| {
-        let dict = data.bind(py).downcast::<PyDict>()?;
-        let mut sf = star::StarFile::new();
+fn write<'py>(py: Python<'py>, data: Bound<'py, PyAny>, path: &str) -> PyResult<()> {
+    // Normalize: if data has .columns, it's a DataFrame → wrap as root block
+    let is_df: bool = py.eval_bound("lambda x: hasattr(x, 'columns')", None, None)?
+        .call1((data.clone(),))?.extract()?;
 
-        for (key, val) in dict.iter() {
-            let name: String = key.extract()?;
-            let inner = val.downcast::<PyDict>()?;
+    let dict = if is_df {
+        let wrapped = PyDict::new(py);
+        wrapped.set_item("root", data)?;
+        wrapped
+    } else {
+        data.downcast::<PyDict>()?.clone()
+    };
 
-            // Detect whether values are lists → LoopBlock, else → SimpleBlock
-            let mut has_list = false;
-            let mut has_scalar = false;
-            for v in inner.values() {
-                if v.is_instance_of::<PyList>() {
-                    has_list = true;
-                } else {
-                    has_scalar = true;
-                }
-            }
+    // Convert DataFrames back to dicts of lists using Python
+    let normalize = py.eval_bound(
+        r#"
+def _normalize(data):
+    import types
+    out = {}
+    for name, block in data.items():
+        if hasattr(block, 'columns') and hasattr(block, 'to_dict'):
+            out[name] = block.to_dict(as_series=False)
+        else:
+            out[name] = block
+    return out
+"#,
+        None,
+        None,
+    )?;
+    let cleaned = normalize.getattr("_normalize")?.call1((dict,))?;
+    let cleaned_dict = cleaned.downcast::<PyDict>()?;
 
-            if has_list && !has_scalar {
-                let mut col_names = Vec::new();
-                let mut col_data: Vec<Vec<DataValue>> = Vec::new();
-                for (k, v) in inner.iter() {
-                    let col_name: String = k.extract()?;
-                    let lst = v.downcast::<PyList>()?;
-                    let mut col = Vec::with_capacity(lst.len());
-                    for item in lst.iter() {
-                        col.push(py_to_data_value(&item));
-                    }
-                    col_names.push(col_name);
-                    col_data.push(col);
-                }
-                sf.blocks
-                    .push((name, DataBlock::Loop(LoopBlock { col_names, col_data })));
+    let mut sf = star::StarFile::new();
+
+    for (key, val) in cleaned_dict.iter() {
+        let name: String = key.extract()?;
+        let inner = val.downcast::<PyDict>()?;
+
+        let mut has_list = false;
+        let mut has_scalar = false;
+        for v in inner.values() {
+            if v.is_instance_of::<PyList>() {
+                has_list = true;
             } else {
-                let mut entries = Vec::new();
-                for (k, v) in inner.iter() {
-                    let key: String = k.extract()?;
-                    entries.push((key, py_to_data_value(&v)));
-                }
-                sf.blocks
-                    .push((name, DataBlock::Simple(SimpleBlock { entries })));
+                has_scalar = true;
             }
         }
 
-        star::write_file(&sf, path.as_ref()).map_err(to_pyerr)
-    })
+        if has_list && !has_scalar {
+            let mut col_names = Vec::new();
+            let mut col_data: Vec<Vec<DataValue>> = Vec::new();
+            for (k, v) in inner.iter() {
+                let col_name: String = k.extract()?;
+                let lst = v.downcast::<PyList>()?;
+                let mut col = Vec::with_capacity(lst.len());
+                for item in lst.iter() {
+                    col.push(py_to_data_value(&item));
+                }
+                col_names.push(col_name);
+                col_data.push(col);
+            }
+            sf.blocks.push((name, DataBlock::Loop(LoopBlock { col_names, col_data })));
+        } else {
+            let mut entries = Vec::new();
+            for (k, v) in inner.iter() {
+                let key: String = k.extract()?;
+                entries.push((key, py_to_data_value(&v)));
+            }
+            sf.blocks.push((name, DataBlock::Simple(SimpleBlock { entries })));
+        }
+    }
+
+    star::write_file(&sf, path.as_ref()).map_err(to_pyerr)
 }
 
-/// Get statistics for a STAR file.
+/// Get file statistics.
+///
+/// Parameters
+/// ----------
+/// path : str
+///     Path to the .star file.
+///
+/// Returns
+/// -------
+/// dict
+///     ``{"n_blocks": int, "n_simple": int, "n_loop": int,
+///     "total_loop_rows": int, "total_simple_entries": int}``
+///
+/// Raises
+/// ------
+/// FileNotFoundError
+///     File does not exist.
+///
+/// Example
+/// -------
+/// >>> s = emstar.stats("particles.star")
+/// >>> s["n_blocks"]
+/// 2
 #[pyfunction]
-fn stats(path: &str) -> PyResult<PyObject> {
+fn stats<'py>(py: Python<'py>, path: &str) -> PyResult<Bound<'py, PyAny>> {
     let sf = star::read_file(path.as_ref()).map_err(to_pyerr)?;
     let s = sf.stats();
-    Python::with_gil(|py| {
-        let d = PyDict::new(py);
-        d.set_item("n_blocks", s.n_blocks)?;
-        d.set_item("n_simple", s.n_simple)?;
-        d.set_item("n_loop", s.n_loop)?;
-        d.set_item("total_loop_rows", s.total_loop_rows)?;
-        d.set_item("total_simple_entries", s.total_simple_entries)?;
-        Ok(d.into())
-    })
+    let d = PyDict::new(py);
+    d.set_item("n_blocks", s.n_blocks)?;
+    d.set_item("n_simple", s.n_simple)?;
+    d.set_item("n_loop", s.n_loop)?;
+    d.set_item("total_loop_rows", s.total_loop_rows)?;
+    d.set_item("total_simple_entries", s.total_simple_entries)?;
+    Ok(d.into_any())
 }
 
-/// Validate a STAR file. Raises `ValueError` on invalid files.
+/// Validate file format. Raises ValueError on invalid files.
+///
+/// Parameters
+/// ----------
+/// path : str
+///     Path to the .star file.
+///
+/// Raises
+/// ------
+/// FileNotFoundError
+///     File does not exist.
+/// ValueError
+///     File is malformed.
+///
+/// Example
+/// -------
+/// >>> emstar.validate("particles.star")
 #[pyfunction]
 fn validate(path: &str) -> PyResult<()> {
     star::read_file(path.as_ref()).map_err(to_pyerr)?;
     Ok(())
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────
+
 fn py_to_data_value(obj: &Bound<'_, PyAny>) -> DataValue {
-    if obj.is_none() {
-        return DataValue::Null;
-    }
-    if let Ok(s) = obj.extract::<String>() {
-        return DataValue::String(s);
-    }
-    if let Ok(i) = obj.extract::<i64>() {
-        return DataValue::Integer(i);
-    }
-    if let Ok(f) = obj.extract::<f64>() {
-        return DataValue::Float(f);
-    }
-    if let Ok(b) = obj.extract::<bool>() {
-        return DataValue::Bool(b);
-    }
+    if obj.is_none() { return DataValue::Null; }
+    if let Ok(s) = obj.extract::<String>() { return DataValue::String(s); }
+    if let Ok(i) = obj.extract::<i64>() { return DataValue::Integer(i); }
+    if let Ok(f) = obj.extract::<f64>() { return DataValue::Float(f); }
+    if let Ok(b) = obj.extract::<bool>() { return DataValue::Bool(b); }
     DataValue::Null
 }
 
@@ -169,42 +286,11 @@ fn to_pyerr(e: StarError) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-/// Try converting a loop block dict to a Polars DataFrame (if polars is installed).
-#[pyfunction]
-fn to_polars<'py>(py: Python<'py>, data: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-    let globals = PyDict::new(py);
-    let locals = PyDict::new(py);
-    locals.set_item("data", data)?;
-    py.eval_bound(
-        "__import__('polars').DataFrame(data)",
-        Some(&globals),
-        Some(&locals),
-    )
-    .map_err(|_| PyValueError::new_err("polars is not installed"))
-}
-
-/// Try converting a loop block dict to a pandas DataFrame (if pandas is installed).
-#[pyfunction]
-fn to_pandas<'py>(py: Python<'py>, data: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-    let globals = PyDict::new(py);
-    let locals = PyDict::new(py);
-    locals.set_item("data", data)?;
-    py.eval_bound(
-        "__import__('pandas').DataFrame(data)",
-        Some(&globals),
-        Some(&locals),
-    )
-    .map_err(|_| PyValueError::new_err("pandas is not installed"))
-}
-
-/// emstar — STAR file I/O for Python.
 #[pymodule]
 fn emstar(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read, m)?)?;
     m.add_function(wrap_pyfunction!(write, m)?)?;
     m.add_function(wrap_pyfunction!(stats, m)?)?;
     m.add_function(wrap_pyfunction!(validate, m)?)?;
-    m.add_function(wrap_pyfunction!(to_polars, m)?)?;
-    m.add_function(wrap_pyfunction!(to_pandas, m)?)?;
     Ok(())
 }

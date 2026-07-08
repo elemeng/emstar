@@ -2,10 +2,34 @@
 
 Read, write, and inspect [STAR files](https://www.iucr.org/__data/assets/file/0013/11416/star.5.html) used in cryo-EM/ET (RELION ect).
 
-**I/O only** — turns bytes into Rust structs and back.
-Data manipulation is done on the structs directly (or via Polars).
+**I/O only** — turns bytes into structs and back.
+Data manipulation is left to your code (or Polars, pandas, NumPy, etc.).
 
-## Library (zero dependencies)
+## Python
+
+```bash
+pip install emstar
+```
+
+```python
+import emstar
+
+# Read — auto-returns DataFrames if polars or pandas is installed
+data = emstar.read("particles.star")
+df = data["particles"]          # polars.DataFrame | pandas.DataFrame | dict of lists
+
+# Write — accepts both dicts and DataFrames
+emstar.write(data, "out.star")
+emstar.write({"x": [1.0, 2.0]}, "out.star")
+
+# Inspect
+emstar.stats("particles.star")
+
+# Validate
+emstar.validate("particles.star")
+```
+
+## Rust library (zero dependencies)
 
 ```toml
 [dependencies]
@@ -74,7 +98,7 @@ emstar stats file.star     # block counts
 emstar validate file.star  # validate format
 ```
 
-## Python bindings
+## Build from source (Python)
 
 ```bash
 pip install maturin
@@ -82,18 +106,7 @@ maturin build --features python
 pip install target/wheels/emstar-*.whl
 ```
 
-```python
-import emstar
-
-data = emstar.read("particles.star")
-# data = {"general": {"key": val}, "particles": {"x": [1.0, 2.0], ...}}
-
-emstar.write(data, "output.star")
-s = emstar.stats("particles.star")
-emstar.validate("particles.star")
-```
-
-## API
+## API (Rust)
 
 | Type | Description |
 |------|-------------|
