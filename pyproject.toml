@@ -4,6 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "emstar"
+version = "0.2.0"
 requires-python = ">=3.8"
 description = "Read, write, and inspect STAR files used in cryo-EM (RELION)"
 readme = "README.md"
