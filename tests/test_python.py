@@ -184,6 +184,15 @@ def test_simple_block_values():
 
 
 if __name__ == "__main__":
+    try:
+        import emstar
+    except ImportError:
+        print(" ✗ emstar is not installed. Build it first:")
+        print("   pip install maturin")
+        print("   maturin build --features python")
+        print("   pip install target/wheels/emstar-*.whl")
+        sys.exit(1)
+
     tests = [
         test_import,
         test_read_write_roundtrip,
