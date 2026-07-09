@@ -112,53 +112,45 @@ mod cli {
             Err(e) => { eprintln!("Error: {}", e); process::exit(1); }
         };
 
-        // Convert Angstrom to pixels
         let cx_pix = cx / angpix;
         let cy_pix = cy / angpix;
         let cz_pix = cz.map(|z| z / angpix);
 
-        let mut found = false;
-        for (name, block) in &mut sf.blocks {
-            let lb = match block {
-                DataBlock::Loop(lb) => lb,
-                _ => continue,
-            };
+        let lb = match sf.blocks.iter_mut().find(|(n, _)| n == "particles") {
+            Some((_, DataBlock::Loop(lb))) => lb,
+            _ => {
+                eprintln!("Error: no block named 'particles' found");
+                process::exit(1);
+            }
+        };
 
-            // Find coordinate columns
-            let xi = lb.col_names.iter().position(|c| c == "rlnCoordinateX");
-            let yi = lb.col_names.iter().position(|c| c == "rlnCoordinateY");
-            let zi = cz_pix.and_then(|_| lb.col_names.iter().position(|c| c == "rlnCoordinateZ"));
+        let xi = lb.col_names.iter().position(|c| c == "rlnCoordinateX")
+            .unwrap_or_else(|| { eprintln!("Error: rlnCoordinateX not found in 'particles'"); process::exit(1); });
+        let yi = lb.col_names.iter().position(|c| c == "rlnCoordinateY")
+            .unwrap_or_else(|| { eprintln!("Error: rlnCoordinateY not found in 'particles'"); process::exit(1); });
 
-            if let (Some(xi), Some(yi)) = (xi, yi) {
-                found = true;
-                let n = lb.row_count();
-                for row in 0..n {
-                    if let Some(DataValue::Float(v)) = lb.col_data[xi].get_mut(row) {
-                        *v -= cx_pix as f64;
-                    }
-                    if let Some(DataValue::Float(v)) = lb.col_data[yi].get_mut(row) {
-                        *v -= cy_pix as f64;
-                    }
-                }
-                // Z is optional — only shift if user provided --z AND column exists
-                if let Some(zi) = zi {
-                    if let Some(cz) = cz_pix {
-                        for row in 0..n {
-                            if let Some(DataValue::Float(v)) = lb.col_data[zi].get_mut(row) {
-                                *v -= cz as f64;
-                            }
-                        }
-                    }
-                }
-                println!("  Centered block '{}' at ({:.3}, {:.3}{}) pixels", name, cx_pix, cy_pix,
-                    cz_pix.map(|z| format!(", {:.3}", z)).unwrap_or_default());
+        let n = lb.row_count();
+        for row in 0..n {
+            if let Some(DataValue::Float(v)) = lb.col_data[xi].get_mut(row) {
+                *v -= cx_pix;
+            }
+            if let Some(DataValue::Float(v)) = lb.col_data[yi].get_mut(row) {
+                *v -= cy_pix;
             }
         }
 
-        if !found {
-            eprintln!("Error: no loop block with rlnCoordinateX/Y found");
-            process::exit(1);
+        if let Some(cz) = cz_pix {
+            if let Some(zi) = lb.col_names.iter().position(|c| c == "rlnCoordinateZ") {
+                for row in 0..n {
+                    if let Some(DataValue::Float(v)) = lb.col_data[zi].get_mut(row) {
+                        *v -= cz;
+                    }
+                }
+            }
         }
+
+        println!("  Centered 'particles' at ({:.3}, {:.3}{}) pixels", cx_pix, cy_pix,
+            cz_pix.map(|z| format!(", {:.3}", z)).unwrap_or_default());
 
         if let Err(e) = write_file(&sf, out) {
             eprintln!("Error writing: {}", e);
@@ -173,25 +165,20 @@ mod cli {
             Err(e) => { eprintln!("Error: {}", e); process::exit(1); }
         };
 
-        let mut removed = false;
-        for (name, block) in &mut sf.blocks {
-            let lb = match block {
-                DataBlock::Loop(lb) => lb,
-                _ => continue,
-            };
-
-            if let Some(idx) = lb.col_names.iter().position(|c| c == col_name) {
-                lb.col_names.remove(idx);
-                lb.col_data.remove(idx);
-                removed = true;
-                println!("  Removed '{}' from block '{}'", col_name, name);
+        let lb = match sf.blocks.iter_mut().find(|(n, _)| n == "particles") {
+            Some((_, DataBlock::Loop(lb))) => lb,
+            _ => {
+                eprintln!("Error: no block named 'particles' found");
+                process::exit(1);
             }
-        }
+        };
 
-        if !removed {
-            eprintln!("Error: column '{}' not found in any loop block", col_name);
-            process::exit(1);
-        }
+        let idx = lb.col_names.iter().position(|c| c == col_name)
+            .unwrap_or_else(|| { eprintln!("Error: column '{}' not found in 'particles'", col_name); process::exit(1); });
+
+        lb.col_names.remove(idx);
+        lb.col_data.remove(idx);
+        println!("  Removed '{}' from 'particles'", col_name);
 
         if let Err(e) = write_file(&sf, out) {
             eprintln!("Error writing: {}", e);
